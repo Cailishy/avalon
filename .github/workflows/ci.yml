@@ -32,7 +32,7 @@ jobs:
           GAME_BUILD_ROOT: .
       - name: Keep failed browser diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-test-diagnostics
           path: |
