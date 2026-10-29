@@ -1,0 +1,39 @@
+(avalon_game) {
+    encode zstd gzip
+    route {
+        @unsupported not method GET HEAD POST
+        respond @unsupported 405
+        @private path_regexp private (?i)(^|/)\.|\.(map|zip|log|toml|ya?ml)$
+        respond @private 404
+        request_body {
+            max_size 16KiB
+        }
+        @login path /api/access /api/access/
+        request_body @login {
+            max_size 1KiB
+        }
+        @game path / /index.html /access.html /manifest.webmanifest /favicon.ico /healthz /api/access /api/access/ /assets/* /socket.io/*
+        reverse_proxy @game {args[0]} {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-Proto https
+            header_up -Forwarded
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 45s
+            }
+        }
+        respond 404
+    }
+    log {
+        output stdout
+        format filter {
+            wrap json
+            fields {
+                request>headers delete
+                request>uri delete
+                resp_headers delete
+            }
+        }
+    }
+}

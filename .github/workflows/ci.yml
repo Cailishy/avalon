@@ -1,0 +1,74 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run repo:check
+      - run: npm run docs:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --registry=https://registry.npmjs.org --audit-level=low
+      - run: npm run build
+      - run: npm run recovery:verify
+      - name: Install isolated browser test runtime
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          GAME_BUILD_ROOT: .
+      - name: Keep failed browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-diagnostics
+          path: |
+            .media/e2e-results/**/test-failed-*.png
+            .media/e2e-results/**/desktop-result.jpg
+            .media/e2e-results/**/mobile-result.jpg
+          retention-days: 7
+  gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Obtain official edge validator
+        run: >-
+          docker run --rm --entrypoint cp
+          -v "${{ runner.temp }}:/export"
+          caddy:2-alpine /usr/bin/caddy /export/caddy
+      - run: npm run gateway:verify
+        env:
+          CADDY_BIN: ${{ runner.temp }}/caddy
+      - name: Validate HTTPS edge configuration
+        run: >-
+          docker run --rm --entrypoint caddy
+          -e GAME_DOMAIN=game.example.test -e TLS_EMAIL=admin@example.test
+          -v "${{ github.workspace }}/deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          -v "${{ github.workspace }}/deploy/caddy-policy.caddy:/etc/caddy/caddy-policy.caddy:ro"
+          caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Validate app-only and optional standalone Compose profiles
+        run: |
+          docker compose --env-file .env.example -f deploy/compose.yaml config --no-env-resolution --quiet
+          docker compose --env-file deploy/.env.public.example -f deploy/compose.yaml --profile standalone config --no-env-resolution --quiet
+          RESTORE_VOLUME=avalon_synthetic_restore docker compose --env-file deploy/.env.public.example -f deploy/compose.yaml -f deploy/compose.restore.yaml config --no-env-resolution --quiet

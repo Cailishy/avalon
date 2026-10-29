@@ -1,0 +1,8 @@
+.access-page .landing-container { width: min(360px, 100%); animation: access-enter .45s ease both; }
+.access-page .entry-header > span { color: var(--muted); font-size: 12px; }
+.access-page .title-section { margin-bottom: 36px; }
+.access-page input[aria-invalid=true] { border-color: var(--readable-evil); }
+#access-error { min-height: 48px; padding-top: 12px; font-size: 13px; color: #f0b8b3; overflow-wrap: anywhere; }
+@keyframes access-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 480px) { .access-page .entry-header { padding-inline: 20px; } }
+@media (prefers-reduced-motion: reduce) { .access-page .landing-container { animation: none; } }

@@ -1,0 +1,6 @@
+# Explicit opt-in only. Select an already restored NEW volume, never clear the original.
+# Use the same override on every subsequent command until recovery is finalized.
+volumes:
+  app_data:
+    external: true
+    name: ${RESTORE_VOLUME:?Set RESTORE_VOLUME to the verified restored volume name}

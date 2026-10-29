@@ -1,0 +1,48 @@
+name: Bug 报告
+description: 报告可复现的非安全类问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: 请先搜索已有问题。安全漏洞不要在此公开，按根目录 SECURITY.md 的私密报告流程处理。不要上传真实数据库、凭证或完整 trace。
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交号
+      description: 填写 Git 提交短号或实际发布版本，不要只写最新版。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、Node、浏览器/设备、LAN 或 public、Caddy 是否共享、是否启用 LiveKit。只填非敏感信息。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 使用合成玩家说明人数、游戏阶段、操作顺序和发生频率。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 脱敏诊断与截图（可选）
+      description: 仅提供必要片段；删除 Cookie、sessionToken、JWT、暗号、API key 和玩家隐私。不附原始日志/trace。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 提交确认
+      options:
+        - label: 这是非安全类问题，已检查内容不包含凭证或玩家隐私。
+          required: true
+        - label: 已搜索类似问题，并愿意遵守 CODE_OF_CONDUCT.md。
+          required: true

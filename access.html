@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#171c1d" />
+    <meta name="robots" content="noindex" />
+    <title>阿瓦隆 · 入场</title>
+  </head>
+  <body>
+    <main class="landing access-page">
+      <header class="entry-header"><strong>阿瓦隆</strong><span>入场验证</span></header>
+      <section class="landing-container" aria-labelledby="access-title">
+        <div class="title-section">
+          <div class="crown-decoration" id="access-emblem" aria-hidden="true"></div>
+          <h1 id="access-title">阿瓦隆</h1>
+          <p class="subtitle">凭暗号入席</p>
+        </div>
+        <form id="access-form">
+          <div class="field">
+            <label for="access-code">入场暗号</label>
+            <input id="access-code" name="code" type="password" autocomplete="current-password" maxlength="128" required aria-describedby="access-error" autofocus placeholder="请输入暗号" />
+          </div>
+          <button class="btn btn-primary entry-submit" type="submit">进入游戏</button>
+          <p id="access-error" role="alert" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/src/client/access.ts"></script>
+  </body>
+</html>

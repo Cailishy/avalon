@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "assetGroups": [
+    {
+      "id": "cc0-media",
+      "paths": [
+        "public/assets/medieval-fair-loop.ogg",
+        "public/assets/game-ambient-loop.ogg",
+        "public/assets/game-investigation-loop.ogg",
+        "public/assets/castle-background.png",
+        "public/assets/kenney-fantasy-ui-borders.zip",
+        "public/assets/rpg-character-portraits.zip",
+        "public/assets/avatars/"
+      ],
+      "license": "CC0-1.0",
+      "approval": "approved",
+      "reviewedBy": "Codex (source verification requested by project maintainer)",
+      "reviewedOn": "2026-10-25",
+      "evidence": [
+        "docs/media/provenance.md",
+        "public/assets/ATTRIBUTION.md",
+        "https://opengameart.org/content/unsolved-investigation",
+        "https://opengameart.org/content/cathedral-in-the-forest-ambient-loop",
+        "https://opengameart.org/content/medieval-fair-loop",
+        "https://opengameart.org/content/fantasy-ui-borders",
+        "https://opengameart.org/content/tileable-icesteel-castle-background",
+        "https://opengameart.org/content/2d-rpg-character-portraits",
+        "https://creativecommons.org/publicdomain/zero/1.0/"
+      ],
+      "notes": "六个上游下载与本地摘要一致，十个头像与来源 ZIP 成员一致，来源页均标注 CC0；保留原许可，不改成 MIT。",
+      "reviewedFiles": [
+        {
+          "file": "public/assets/avatars/avatar-1.png",
+          "bytes": 84078,
+          "sha256": "bc8ba4d8450ee7074cedbcf221e71251278dd76df73f99150f7bcf4addde0518"
+        },
+        {
+          "file": "public/assets/avatars/avatar-10.png",
+          "bytes": 63442,
+          "sha256": "45340da4d157ea558b9b4a889e54a508fa6f96f6675edb37615a005a122fd406"
+        },
+        {
+          "file": "public/assets/avatars/avatar-2.png",
+          "bytes": 96613,
+          "sha256": "f73275043585b05e099502182e066955051306e9810e5e24f029c852da3e4af4"
+        },
+        {
+          "file": "public/assets/avatars/avatar-3.png",
+          "bytes": 96956,
+          "sha256": "5254904f8b2ac5b40bd39ba8e18c6a8c8e09302be8e7bf97ec554d20b547adef"
+        },
+        {
+          "file": "public/assets/avatars/avatar-4.png",
+          "bytes": 85457,
+          "sha256": "e60e1df2be0c2a43789b5e4e59a5da80142d03ead90a1dfe09d27be6e4054653"
+        },
+        {
+          "file": "public/assets/avatars/avatar-5.png",
+          "bytes": 74127,
+          "sha256": "252aa787ec55e2553fbde4ffcc2ae77917b0b77a72ff8d819cfa3b87fcc6ce4b"
+        },
+        {
+          "file": "public/assets/avatars/avatar-6.png",
+          "bytes": 82293,
+          "sha256": "1eb2e259cbc206393c51c4665ba964354633241e8c385a3b8eccfdbaf9ae04d8"
+        },
+        {
+          "file": "public/assets/avatars/avatar-7.png",
+          "bytes": 78494,
+          "sha256": "42704ef2a32fa6e33f2e9c40e0ae7435e455427f637dca4ee96fa5883726fbbc"
+        },
+        {
+          "file": "public/assets/avatars/avatar-8.png",
+          "bytes": 79717,
+          "sha256": "a0d7b582cf349593fd0c4d7272f9eb2ff983150e012956f57c106d7899996b47"
+        },
+        {
+          "file": "public/assets/avatars/avatar-9.png",
+          "bytes": 89592,
+          "sha256": "0a09f3a1998cfe8e8b118a3f77b58aef1c257f5b5ce85906e7489ef61098ce76"
+        },
+        {
+          "file": "public/assets/castle-background.png",
+          "bytes": 46902,
+          "sha256": "7c80d8ac5a44f1855bae5cd92cfb7caf0b90ddbb682336006a73acfe60af4e5a"
+        },
+        {
+          "file": "public/assets/game-ambient-loop.ogg",
+          "bytes": 2947211,
+          "sha256": "b9e05a1fcd5869b63193515e2a9c1bd578906a78e628e307f19527d387262593"
+        },
+        {
+          "file": "public/assets/game-investigation-loop.ogg",
+          "bytes": 2200350,
+          "sha256": "2877e423ff90cb99b3082840e66cf79d69a809708466c6f27c750c0e1ce2a912"
+        },
+        {
+          "file": "public/assets/kenney-fantasy-ui-borders.zip",
+          "bytes": 358780,
+          "sha256": "59532da3bd61195a425585455b40baa6cbf1eda8227c42adcef31a535a737769"
+        },
+        {
+          "file": "public/assets/medieval-fair-loop.ogg",
+          "bytes": 375316,
+          "sha256": "610406db17bb2ec00e1424ce25251cb57b2792f747eff386941c4cf06dc4b7ed"
+        },
+        {
+          "file": "public/assets/rpg-character-portraits.zip",
+          "bytes": 5367406,
+          "sha256": "9c41e192f5b74741c21237d8576cba4badbc3dfbc46cab26b61adee196c3d4ee"
+        }
+      ]
+    },
+    {
+      "id": "generated-art",
+      "paths": [
+        "public/assets/avalon-portraits.png",
+        "public/assets/avalon-guests.png",
+        "public/assets/avalon-public-portraits.png",
+        "public/assets/avalon-table.png"
+      ],
+      "license": "MIT",
+      "approval": "approved",
+      "reviewedBy": "Codex (provenance review); project maintainer (explicit MIT asset approval)",
+      "reviewedOn": "2026-10-25",
+      "evidence": [
+        "docs/media/provenance.md",
+        "public/assets/ATTRIBUTION.md",
+        "public/assets/ART-PROMPTS.md",
+        "public/assets/MIT-LICENSE.txt",
+        "https://openai.com/policies/terms-of-use/",
+        "https://openai.com/policies/services-agreement/"
+      ],
+      "notes": "维护者明确同意已确认项目自制/生成素材采用 MIT；保留 AI 生成来源，不保证输出独有或无第三方权利。仅批准本次列明文件。",
+      "reviewedFiles": [
+        {
+          "file": "public/assets/avalon-guests.png",
+          "bytes": 2761921,
+          "sha256": "fccb51a3e750af067e5d4af2898fb6db436277541240570797214fed8483f51d"
+        },
+        {
+          "file": "public/assets/avalon-portraits.png",
+          "bytes": 3129191,
+          "sha256": "58540795e37c5a4829e2412ec9bab203bd401dc83e0011222d431c82ffccc444"
+        },
+        {
+          "file": "public/assets/avalon-public-portraits.png",
+          "bytes": 2969478,
+          "sha256": "c6bb4e08997d607b172b7216bd921078a4edd1fa80f3ae5b386abef5b5b96a85"
+        },
+        {
+          "file": "public/assets/avalon-table.png",
+          "bytes": 3143358,
+          "sha256": "0ae6efda6f763d5ad4360df0e7a7dbbb825af1ae7c5e9dfe78eb8651337963c9"
+        }
+      ]
+    },
+    {
+      "id": "site-icon",
+      "paths": [
+        "public/assets/icon.svg"
+      ],
+      "license": "MIT",
+      "approval": "approved",
+      "reviewedBy": "Codex (provenance review); project maintainer (explicit MIT asset approval)",
+      "reviewedOn": "2026-10-25",
+      "evidence": [
+        "docs/media/provenance.md",
+        "public/assets/MIT-LICENSE.txt"
+      ],
+      "notes": "核对本地初始提交 0f05bf2 及当前简单几何 SVG，无脚本/外部资源；维护者明确同意项目自制图标采用 MIT，不覆盖 Lucide。",
+      "reviewedFiles": [
+        {
+          "file": "public/assets/icon.svg",
+          "bytes": 397,
+          "sha256": "5d278904a6741496257b038d5ff2872b3303dfddf3fb916435662911a672df9b"
+        }
+      ]
+    },
+    {
+      "id": "original-effects",
+      "paths": [
+        "public/assets/mission-success.wav",
+        "public/assets/mission-fail.wav"
+      ],
+      "license": "MIT",
+      "approval": "approved",
+      "reviewedBy": "Codex (generator reproduction); project maintainer (explicit MIT asset approval)",
+      "reviewedOn": "2026-10-25",
+      "evidence": [
+        "scripts/media/generate-result-sounds.mjs",
+        "docs/media/provenance.md",
+        "public/assets/MIT-LICENSE.txt"
+      ],
+      "notes": "原脚本在隔离目录重新生成的两个 WAV 与本地文件字节相同，不使用下载采样；维护者明确同意 MIT 分发。",
+      "reviewedFiles": [
+        {
+          "file": "public/assets/mission-fail.wav",
+          "bytes": 194084,
+          "sha256": "ac3da90dda97e81ca053e4c82d0ea16b6e74ddb7382769689efc068d74c24625"
+        },
+        {
+          "file": "public/assets/mission-success.wav",
+          "bytes": 194084,
+          "sha256": "70286c23b966db6b79921c723e1c22e13ebbc021910db69158c98a82da885587"
+        }
+      ]
+    },
+    {
+      "id": "narration",
+      "paths": [
+        "public/assets/narration/"
+      ],
+      "license": "MiniMax Audio terms; maintainer-confirmed project redistribution (not MIT or CC0)",
+      "approval": "approved",
+      "reviewedBy": "Project maintainer (explicit public-distribution confirmation); Codex (source and file-integrity checks only)",
+      "reviewedOn": "2026-10-29",
+      "evidence": [
+        "public/assets/ATTRIBUTION.md",
+        "docs/media/narration.md",
+        "docs/media/provenance.md",
+        "https://www.minimax.io/terms-of-service-v2.html",
+        "https://www.minimax.io/audio/doc/terms-of-service.html",
+        "public/assets/narration/NOTICE.md"
+      ],
+      "notes": "维护者于 2026-10-29 明确确认现有录音可以随本项目公开分发；本次 16/16 MP3 的大小和 SHA-256 与既有清单一致。审批依据是维护者的分发确认，不是 Codex 独立取得了生成时套餐或音色的额外授权证明。不改为 MIT/CC0，不据此授予其他项目任意改编、商业使用或声音克隆权利；上游适用条款和第三方权利仍须遵守。未记录账号、订单、密钥或私密通信。",
+      "reviewedFiles": [
+        {
+          "file": "public/assets/narration/assassination.40f2caa7b86a.mp3",
+          "bytes": 196066,
+          "sha256": "40f2caa7b86a33db44bed148afa3276ecf0287225e2f10047bb3c359af5ca0b0"
+        },
+        {
+          "file": "public/assets/narration/game-reveal.15303f538de8.mp3",
+          "bytes": 110803,
+          "sha256": "15303f538de8956519b92cda31172dc78aebf7296bec7490d02a4abffd015311"
+        },
+        {
+          "file": "public/assets/narration/mission-failure.075f1719de3c.mp3",
+          "bytes": 68589,
+          "sha256": "075f1719de3c5e03dee5a54b3228d374a19bde3f43866be8707a2a1a9d3082f7"
+        },
+        {
+          "file": "public/assets/narration/mission-play-forced.7ecd1159f0d0.mp3",
+          "bytes": 148837,
+          "sha256": "7ecd1159f0d0efe675036b94a1780123a2174a6510047970e394b10e2e5e2abc"
+        },
+        {
+          "file": "public/assets/narration/mission-play.36e06383cbc2.mp3",
+          "bytes": 153853,
+          "sha256": "36e06383cbc2e916d30b7a97ec4e9c02655c22a0b0d5be48ab0ce2b62901f190"
+        },
+        {
+          "file": "public/assets/narration/mission-success.cadccabac869.mp3",
+          "bytes": 77366,
+          "sha256": "cadccabac86992a2cc566ef38df567ead8f1dfe7e62080501f59796ac11f2943"
+        },
+        {
+          "file": "public/assets/narration/mission-three-failures.bc913b3b2c10.mp3",
+          "bytes": 78620,
+          "sha256": "bc913b3b2c102ab02eafd439dd29f557ae94f1b451e28175568205737bd094d3"
+        },
+        {
+          "file": "public/assets/narration/mission-three-successes.9e2a11c39520.mp3",
+          "bytes": 82382,
+          "sha256": "9e2a11c39520976b47ef2491ebd72af4949fcc62545436c6fca4fdb8fe625f61"
+        },
+        {
+          "file": "public/assets/narration/proposal-rejected.ad8766b4453a.mp3",
+          "bytes": 58140,
+          "sha256": "ad8766b4453a4b5032e61c2b22b40b71926971e1d8a53adab8a3c0dd0c994730"
+        },
+        {
+          "file": "public/assets/narration/speech-next.1c8c7a6d83f6.mp3",
+          "bytes": 38914,
+          "sha256": "1c8c7a6d83f696508646722fcf102ef46355d714768593c719af33e933f71abb"
+        },
+        {
+          "file": "public/assets/narration/speech-start.937a54b22234.mp3",
+          "bytes": 29301,
+          "sha256": "937a54b2223455177122799e07a65ae25d2e5972b2db7d652804945636c77ea7"
+        },
+        {
+          "file": "public/assets/narration/team-select-forced.e3f2231cd18f.mp3",
+          "bytes": 112057,
+          "sha256": "e3f2231cd18f94e70644d179cf8eb8925315d4e6206e921749b646679568852f"
+        },
+        {
+          "file": "public/assets/narration/team-select.fff591cd6d87.mp3",
+          "bytes": 87815,
+          "sha256": "fff591cd6d873eb9b4840bee00f81397eeb43f0a31928e5407d2ba61d5566bf0"
+        },
+        {
+          "file": "public/assets/narration/team-vote.1879ce7e9c3b.mp3",
+          "bytes": 119998,
+          "sha256": "1879ce7e9c3bde0abc2a99479b1c1204589e808c3b3cc4cea4721b518f9bac38"
+        },
+        {
+          "file": "public/assets/narration/victory-evil.f14827942064.mp3",
+          "bytes": 53542,
+          "sha256": "f14827942064bc9d594e004f9c5c2acc7b490cb62a7dfa1c4f58a7f8fc2760e7"
+        },
+        {
+          "file": "public/assets/narration/victory-good.5ef3bf26c917.mp3",
+          "bytes": 48109,
+          "sha256": "5ef3bf26c917e023a7310a3099fb394744f0c7fa48202d162a772fb1e09c3fa7"
+        }
+      ]
+    }
+  ]
+}

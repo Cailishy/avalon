@@ -1,0 +1,7 @@
+# Import this file from the machine's existing Caddyfile. Edit the domain first.
+# Keep caddy-policy.caddy next to this file; no second global block is added.
+import caddy-policy.caddy
+
+game.example.com {
+    import avalon_game 127.0.0.1:3100
+}

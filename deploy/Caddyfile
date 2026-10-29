@@ -1,0 +1,18 @@
+{
+	email {$TLS_EMAIL}
+	admin off
+	servers {
+		max_header_size 16KB
+		timeouts {
+			read_header 10s
+			read_body 15s
+			idle 60s
+		}
+	}
+}
+
+import caddy-policy.caddy
+
+{$GAME_DOMAIN} {
+	import avalon_game app:3000
+}

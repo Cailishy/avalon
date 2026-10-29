@@ -1,0 +1,17 @@
+{
+  "name": "Avalon 阿瓦隆",
+  "short_name": "阿瓦隆",
+  "description": "5–10 人阿瓦隆网页游戏，支持局域网与公网联机",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#171311",
+  "theme_color": "#171311",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "version": "f1d1c3e4c9044fa9",
+  "voice": {
+    "name": "Serene Narrator - Deep,Resonant,Measured",
+    "language": "Chinese (Mandarin)",
+    "speed": 0.9,
+    "pitch": 0,
+    "direction": "沉稳、清晰、克制的旁白。自然音高，停顿清楚，不使用活泼、夸张或角色表演式语气。"
+  },
+  "clips": [
+    {
+      "id": "game-reveal",
+      "file": "game-reveal.15303f538de8.mp3",
+      "bytes": 110803,
+      "durationMs": 6850,
+      "sha256": "15303f538de8956519b92cda31172dc78aebf7296bec7490d02a4abffd015311"
+    },
+    {
+      "id": "team-select",
+      "file": "team-select.fff591cd6d87.mp3",
+      "bytes": 87815,
+      "durationMs": 5422,
+      "sha256": "fff591cd6d873eb9b4840bee00f81397eeb43f0a31928e5407d2ba61d5566bf0"
+    },
+    {
+      "id": "team-select-forced",
+      "file": "team-select-forced.e3f2231cd18f.mp3",
+      "bytes": 112057,
+      "durationMs": 6943,
+      "sha256": "e3f2231cd18f94e70644d179cf8eb8925315d4e6206e921749b646679568852f"
+    },
+    {
+      "id": "team-vote",
+      "file": "team-vote.1879ce7e9c3b.mp3",
+      "bytes": 119998,
+      "durationMs": 7420,
+      "sha256": "1879ce7e9c3bde0abc2a99479b1c1204589e808c3b3cc4cea4721b518f9bac38"
+    },
+    {
+      "id": "proposal-rejected",
+      "file": "proposal-rejected.ad8766b4453a.mp3",
+      "bytes": 58140,
+      "durationMs": 3565,
+      "sha256": "ad8766b4453a4b5032e61c2b22b40b71926971e1d8a53adab8a3c0dd0c994730"
+    },
+    {
+      "id": "mission-play",
+      "file": "mission-play.36e06383cbc2.mp3",
+      "bytes": 153853,
+      "durationMs": 9556,
+      "sha256": "36e06383cbc2e916d30b7a97ec4e9c02655c22a0b0d5be48ab0ce2b62901f190"
+    },
+    {
+      "id": "mission-play-forced",
+      "file": "mission-play-forced.7ecd1159f0d0.mp3",
+      "bytes": 148837,
+      "durationMs": 9230,
+      "sha256": "7ecd1159f0d0efe675036b94a1780123a2174a6510047970e394b10e2e5e2abc"
+    },
+    {
+      "id": "mission-success",
+      "file": "mission-success.cadccabac869.mp3",
+      "bytes": 77366,
+      "durationMs": 4761,
+      "sha256": "cadccabac86992a2cc566ef38df567ead8f1dfe7e62080501f59796ac11f2943"
+    },
+    {
+      "id": "mission-failure",
+      "file": "mission-failure.075f1719de3c.mp3",
+      "bytes": 68589,
+      "durationMs": 4227,
+      "sha256": "075f1719de3c5e03dee5a54b3228d374a19bde3f43866be8707a2a1a9d3082f7"
+    },
+    {
+      "id": "mission-three-successes",
+      "file": "mission-three-successes.9e2a11c39520.mp3",
+      "bytes": 82382,
+      "durationMs": 5086,
+      "sha256": "9e2a11c39520976b47ef2491ebd72af4949fcc62545436c6fca4fdb8fe625f61"
+    },
+    {
+      "id": "mission-three-failures",
+      "file": "mission-three-failures.bc913b3b2c10.mp3",
+      "bytes": 78620,
+      "durationMs": 4854,
+      "sha256": "bc913b3b2c102ab02eafd439dd29f557ae94f1b451e28175568205737bd094d3"
+    },
+    {
+      "id": "speech-start",
+      "file": "speech-start.937a54b22234.mp3",
+      "bytes": 29301,
+      "durationMs": 1754,
+      "sha256": "937a54b2223455177122799e07a65ae25d2e5972b2db7d652804945636c77ea7"
+    },
+    {
+      "id": "speech-next",
+      "file": "speech-next.1c8c7a6d83f6.mp3",
+      "bytes": 38914,
+      "durationMs": 2369,
+      "sha256": "1c8c7a6d83f696508646722fcf102ef46355d714768593c719af33e933f71abb"
+    },
+    {
+      "id": "assassination",
+      "file": "assassination.40f2caa7b86a.mp3",
+      "bytes": 196066,
+      "durationMs": 12179,
+      "sha256": "40f2caa7b86a33db44bed148afa3276ecf0287225e2f10047bb3c359af5ca0b0"
+    },
+    {
+      "id": "victory-good",
+      "file": "victory-good.5ef3bf26c917.mp3",
+      "bytes": 48109,
+      "durationMs": 2938,
+      "sha256": "5ef3bf26c917e023a7310a3099fb394744f0c7fa48202d162a772fb1e09c3fa7"
+    },
+    {
+      "id": "victory-evil",
+      "file": "victory-evil.f14827942064.mp3",
+      "bytes": 53542,
+      "durationMs": 3275,
+      "sha256": "f14827942064bc9d594e004f9c5c2acc7b490cb62a7dfa1c4f58a7f8fc2760e7"
+    }
+  ]
+}

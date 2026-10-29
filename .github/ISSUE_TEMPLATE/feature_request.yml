@@ -1,0 +1,30 @@
+name: 功能建议
+description: 讨论游戏、体验或维护流程的改进
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 说明使用场景、受影响的人和目前的限制。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 如涉及游戏规则，说明人数、阶段和判定；如涉及界面，说明桌面与手机行为。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案与兼容性
+      description: 可说明协议、旧房间/快照、隐私、部署成本或第三方资源授权影响。
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 提交确认
+      options:
+        - label: 不包含安全漏洞细节或私密数据，并愿意遵守 CODE_OF_CONDUCT.md。
+          required: true
