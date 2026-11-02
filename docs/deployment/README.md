@@ -178,11 +178,13 @@ flowchart LR
 
 ### 自动验证
 
-配置检查不需要真实域名或私密配置：
+配置检查不需要真实域名、私密配置或运行中的 Docker Engine。以下命令适用于 Linux / macOS，从项目根目录执行：
 
 ```bash
-docker compose --env-file deploy/.env.public.example -f deploy/compose.yaml config --no-env-resolution --quiet
+GAME_ENV_FILE=.env.public.example docker compose --env-file deploy/.env.public.example -f deploy/compose.yaml config --quiet
 ```
+
+这里显式将服务的 `env_file` 指向同一份公开示例：`--env-file` 从工作目录解析，`GAME_ENV_FILE` 从 `deploy/compose.yaml` 所在目录解析。不要仅依赖 `--no-env-resolution` 跳过私有文件存在性检查，不同 Compose 版本的行为可能不同。此命令只检查模板，不启动服务；生产环境仍必须提供真实私有配置，不能使用示例暗号上线。
 
 `npm run gateway:verify` 只需标准 Caddy，可用 `CADDY_BIN` 指定程序。加载本项目独立/共享站点配置和同一应用防护，验证其他域名不受影响、转发头清理、非可信直连、方法/路径/体积（含分块正文）、WebSocket/polling、登录限流及日志字段。仅用随机 HTTP 回环替代 TLS 终止，不申请证书；退出清理自身资源，不连接现有房间或主机 Caddy。
 

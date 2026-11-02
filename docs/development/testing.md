@@ -61,6 +61,8 @@ npm run gateway:verify
 
 恢复验证在隔离生产进程中强制退出并重建服务，核对身份、部分投票、剩余时间与重复结算。网关验证需要标准 Caddy，可用 `CADDY_BIN` 指定可执行文件，检查临时回环拓扑的来源/路径/方法/体积限制、WebSocket/polling、限流及日志脱敏，不申请公网证书。
 
+网关 CI 另用真实 `docker compose config --quiet` 分别检查 app-only、独立 Caddy 和恢复数据卷三个 profile。每一步显式设置 `GAME_ENV_FILE`，使容器的 `env_file` 与 `--env-file` 指向同一份已跟踪的公开示例；不创建真实 `.env.public`，也不把生产配置改为可选。`scripts/checks/ci-workflow.test.ts` 对三条命令、示例路径和恢复卷变量做回归，防止本机已有私有文件掩盖干净 CI 中的缺失。配置解析不需要启动容器，实际部署仍需单独验收。
+
 ## 本机语音
 
 安装官方 LiveKit 二进制后执行：
