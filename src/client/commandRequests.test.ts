@@ -49,6 +49,56 @@ describe("Confirmed command requests", () => {
     expect(done).toHaveBeenCalledOnce();
     vi.advanceTimersByTime(1000); expect(sent.filter(value => value.event === "team:propose")).toHaveLength(2);
   });
+  it.each(["team:propose", "vote:submit", "mission:submit", "assassin:choose", "room:start", "room:restart"])("waits for the original acknowledgement when %s advances the authoritative phase", event => {
+    const { sent, socket, options } = setup(); const done = vi.fn();
+    let activePhase = options.phaseId();
+    const phaseAware = new CommandRequests(socket, { ...options, phaseId: () => activePhase });
+    phaseAware.send(event, {}, done);
+    activePhase = `phase_${"c".repeat(32)}`;
+    phaseAware.phaseChanged();
+    expect(done).not.toHaveBeenCalled();
+    sent[0].ack({ ok: true });
+    expect(done).toHaveBeenCalledExactlyOnceWith({ ok: true });
+  });
+  it("confirms a phase-advancing command from its receipt when the acknowledgement is lost", () => {
+    const { sent, socket, options } = setup(); const done = vi.fn();
+    let activePhase = options.phaseId();
+    const phaseAware = new CommandRequests(socket, { ...options, phaseId: () => activePhase });
+    phaseAware.send("mission:submit", { failed: false }, done);
+    activePhase = `phase_${"c".repeat(32)}`;
+    phaseAware.phaseChanged();
+    vi.advanceTimersByTime(100);
+    sent.find(request => request.event === "command:status")!.ack({ ok: true, result: { ok: true } });
+    expect(done).toHaveBeenCalledExactlyOnceWith({ ok: true });
+  });
+  it("releases an unconfirmed phase-bound action after bounded retries", () => {
+    const { sent, socket, options } = setup(); const done = vi.fn();
+    let activePhase = options.phaseId();
+    const phaseAware = new CommandRequests(socket, { ...options, phaseId: () => activePhase });
+    phaseAware.send("speech:end", {}, done);
+    activePhase = `phase_${"c".repeat(32)}`;
+    phaseAware.phaseChanged();
+    vi.advanceTimersByTime(300);
+    expect(done).toHaveBeenCalledWith(expect.objectContaining({ ok: false, code: "UNCONFIRMED" }));
+    phaseAware.send("speech:end", {}, vi.fn());
+    expect(sent.filter(request => request.event === "speech:end")).toHaveLength(4);
+  });
+  it("confirms speech end when the authoritative snapshot moved to another speaker", () => {
+    const { sent, socket, options } = setup(); const done = vi.fn();
+    let activePhase = options.phaseId();
+    let currentSpeaker = "speaker-a";
+    const phaseAware = new CommandRequests(socket, {
+      ...options,
+      phaseId: () => activePhase,
+      confirmPhaseChange: request => request.event === "speech:end" && currentSpeaker !== request.payload.playerId,
+    });
+    phaseAware.send("speech:end", { playerId: "speaker-a" }, done);
+    activePhase = `phase_${"d".repeat(32)}`;
+    currentSpeaker = "speaker-b";
+    phaseAware.phaseChanged();
+    expect(done).toHaveBeenCalledWith({ ok: true });
+    expect(sent).toHaveLength(1);
+  });
   it("does not turn lost responses into a false failure or a fresh operation", () => {
     const { requests, sent, options } = setup(); const done = vi.fn();
     requests.send("room:create", { name: "Host" }, done);
@@ -75,5 +125,13 @@ describe("Confirmed command requests", () => {
     expect(sent[0].payload).toEqual({ roomCode: "ABCDE" });
     requests.cancel(); sent[0].ack({ ok: true });
     vi.advanceTimersByTime(1000); expect(done).not.toHaveBeenCalled();
+  });
+  it("retries a pending rejoin immediately on a fresh socket", () => {
+    const { requests, sent } = setup();
+    requests.send("room:rejoin", { roomCode: "ABCDE" }, vi.fn());
+    expect(sent).toHaveLength(1);
+    expect(requests.retry("room:rejoin")).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(sent[0].payload).toEqual(sent[1].payload);
   });
 });

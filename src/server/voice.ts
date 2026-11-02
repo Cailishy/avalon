@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 import { AccessToken, RoomServiceClient, TrackSource } from "livekit-server-sdk";
 import type { VoiceAccess, VoicePolicy } from "../shared/voice";
 import { ROLE_DEFS } from "../shared/game";
-import type { RoomManager } from "./roomManager";
+import type { RoomInternal } from "./roomTypes";
 import type { VoiceConfig } from "./config";
 
-type Room = NonNullable<ReturnType<RoomManager["getRoom"]>>;
+type Room = RoomInternal;
 type Entry = { fingerprint: string; name: string; created: boolean; creating?: Promise<unknown> };
 export interface VoiceBackend {
   createRoom: (options: { name: string; maxParticipants: number; emptyTimeout: number; departureTimeout: number }) => Promise<unknown>;

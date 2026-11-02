@@ -16,6 +16,7 @@
 | --- | --- |
 | [部署指南](deployment/README.md) | 复用已有 Caddy、容器、语音、升级和备份恢复 |
 | [架构](development/architecture.md) | 模块、状态机、协议与数据流 |
+| [模块化拆分方案](development/modularization-plan.md) | 已落地的分层、仍待拆分的职责与迁移顺序 |
 | [安全设计](development/security.md) | 游戏服务、代理、存储与语音的信任边界 |
 | [测试与工具](development/testing.md) | 隔离构建、浏览器、恢复、网关及语音验证 |
 | [发布版本](development/releasing.md) | 通用发布方式与独立公开源码快照 |

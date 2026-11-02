@@ -33,4 +33,8 @@ WebRTC 提供传输加密，但本项目没有实现 E2EE；媒体服务器和�
 
 内部维护记录不参与构建、运行或公共 CI。素材的公开许可与逐文件摘要另见[素材清单](../media/assets.json)，代码 MIT 不能代替第三方媒体的分发条件。
 
+## 依赖维护
+
+CI 对完整依赖树执行 `npm audit`，不能只检查生产依赖而忽略开发和构建工具。当前通过 npm `overrides` 将开发工具链的 `minimatch` 固定为 `11.0.1`，对应修复 [GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249)。这是跨原依赖主版本的显式兼容覆盖，已配合锁文件、lint、类型、构建和回归验证；上游依赖接入修复版本后应重新评估并移除覆盖，不使用 `audit fix --force` 自动降级整套工具。
+
 安全检查只覆盖当次测试与已知公告，不能证明不存在未知漏洞。上线前仍需在自己的 Linux、证书、防火墙、备份及真实终端环境验收。

@@ -312,7 +312,7 @@ export function renderActionPanel(context: GameViewContext, myId: string): strin
             <span class="settlement-emblem" aria-hidden="true">${icon(state.winner === "good" ? "crown" : "swords", 30)}</span>
             <p class="settlement-kicker">游戏结束</p>
             <h2>${winnerText}</h2>
-            <p class="settlement-reason">${escapeHtml(formatWinnerReason(state.winnerReason))}</p>
+            <p class="settlement-reason">${escapeHtml(formatWinnerReason(state.winnerReason, state.winnerDetails))}</p>
             <div class="result-score"><span>${state.score.success} 次成功</span><span>${state.score.fail} 次失败</span></div>
           </header>
           <div class="result-roster">${state.revealedRoles.map(r => `<div class="result-player">${portraitMarkup(rolePortraitCell(r.role, r.servantVariant), "roster-art")}<strong>${escapeHtml(state.players.find(p => p.id === r.playerId)?.name ?? "")}</strong><span>${escapeHtml(formatRoleName(r.roleName))}</span><span class="role-badge ${r.side}">${FACTION_NAMES[r.side]}</span></div>`).join("")}</div>

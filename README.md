@@ -130,17 +130,45 @@ npm run dev
 
 ## 🛠️ 开发
 
-想改界面，从 `src/client/` 开始；想改房间、规则执行或存档，从 `src/server/` 开始。共享规则和通信协议放在 `src/shared/`。整体设计见[架构说明](docs/development/architecture.md)。
+想改界面，从 `src/client/` 开始；想改房间、规则执行或存档，从 `src/server/` 开始。共享规则和通信协议放在 `src/shared/`。服务端采用模块化单体：仍然只运行一个游戏进程，按职责拆分代码，不需要为每个模块部署服务。
+
+```mermaid
+flowchart LR
+  Browser[浏览器] <-- HTTPS / Socket.IO --> Caddy[Caddy 网关]
+  Caddy <-- HTTP / WebSocket --> Game[Node.js 游戏服务]
+  Game --> SQLite[私有 SQLite 存档]
+  Game -- 短期语音授权 --> Browser
+  Browser <-- WebRTC 音频 --> Voice[LiveKit · 可选]
+```
+
+这是公网部署的连接方式；本地和局域网可以直接连接 Node.js，不需要 Caddy。游戏指令和语音音频走不同链路，没配置 LiveKit 不影响对局或本地旁白。
+
+| 想修改什么 | 从哪里开始 |
+| --- | --- |
+| 页面、表单与选人草稿 | `src/client/views/`、`src/client/state/` |
+| Socket 消息与连接 | `src/server/adapters/` |
+| 命令校验、回执与提交编排 | `src/server/application/` |
+| 公投、任务判定和轮换计算 | `src/server/domain/` |
+| SQLite、快照与保存恢复 | `src/server/infrastructure/` |
+
+`RoomManager` 目前仍协调房间状态、计时器、AI 和恢复，不是已经完全拆开的纯规则引擎。当前目录、调用顺序和后续边界见[架构说明](docs/development/architecture.md)。
 
 前端使用 TypeScript、Vite 和 morphdom；后端使用 Node.js、Express、Socket.IO 和 SQLite。日常开发常用这几条命令：
 
 ```bash
-npm run check       # 仓库、文档、lint、类型与单元测试
+npm run check       # 仓库、文档、架构边界、lint、类型与测试
 npm run build:e2e   # 隔离构建，不覆盖在线 dist
 npm run test:e2e    # 多人浏览器回归，需安装 Playwright Chromium
 ```
 
 生产构建使用 `npm run build`，启动使用 `npm start`。开发环境和完整检查命令见[贡献指南](CONTRIBUTING.md)与[测试说明](docs/development/testing.md)。
+
+## 使用边界
+
+- 房间由一个 Node.js 进程和一个 SQLite 写者管理，不支持多个游戏实例同时接管同一数据库。
+- 规则 AI 用来练习流程，不会像真人一样推理、聊天或语音发言。
+- 已有 5–10 人浏览器回归与恢复测试；公网证书、防火墙、跨网络语音和手机麦克风仍需在实际部署环境验收。
+- 项目提供门禁、权限校验、限流和网关配置，但不承诺抵御所有攻击或大规模 DDoS；公网使用前请按[部署指南](docs/deployment/README.md)配置。
 
 ## 📄 许可
 

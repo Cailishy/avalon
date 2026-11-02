@@ -1,8 +1,14 @@
 import { ROLE_DEFS, getTeamSize } from "../shared/game";
-import type { RoomManager } from "./roomManager";
 import type { RoomInternal } from "./roomTypes";
 
-type RoomAIActions = Pick<RoomManager, "getRoom" | "proposeTeam" | "submitVote" | "submitMission" | "endSpeech"> & { notifyRoomChanged: (code: string) => void };
+export interface RoomAIActions {
+  getRoom: (code: string) => RoomInternal | null;
+  proposeTeam: (code: string, playerId: string, token: string, team: string[]) => void;
+  submitVote: (code: string, playerId: string, token: string, approved: boolean) => void;
+  submitMission: (code: string, playerId: string, token: string, failed: boolean) => void;
+  endSpeech: (code: string, playerId: string, token: string) => void;
+  notifyRoomChanged: (code: string) => void;
+}
 const AI_SPEECH_MS = 3000;
 
 export function clearRoomAI(room: RoomInternal): void {

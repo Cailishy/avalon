@@ -4,6 +4,16 @@ export type ServantVariant = "male" | "female";
 export const FACTION_NAMES: Record<Side, string> = { good: "守誓者", evil: "藏锋者" };
 export type RoomPhase = "lobby" | "reveal" | "team" | "vote" | "proposalResult" | "mission" | "missionResult" | "speech" | "assassin" | "result";
 export type Winner = "good" | "evil";
+export type RoleKnowledgeKind = "evilPlayers" | "merlinCandidates" | "evilCompanions" | "oberon" | "none";
+export interface RoleKnowledgeInfo {
+  kind: RoleKnowledgeKind;
+  playerIds: string[];
+}
+export type WinnerReasonKind = "missionFailure" | "assassinHit" | "assassinMiss" | "assassinTimeout" | "assassinLeft";
+export interface WinnerDetails {
+  kind: WinnerReasonKind;
+  targetPlayerId?: string;
+}
 export type TimerKind = "reveal" | "team" | "vote" | "proposalResult" | "mission" | "missionResult" | "speech" | "assassin" | "recovery";
 
 export interface RoleDef {
@@ -45,6 +55,8 @@ export interface QuestHistoryEntry {
 
 export interface PublicRoomState {
   phaseId: string;
+  revision?: number;
+  instanceId?: string;
   recovery?: { deadline: number; connected: number; expected: number };
   roomCode: string;
   phase: RoomPhase;
@@ -64,6 +76,7 @@ export interface PublicRoomState {
   history: QuestHistoryEntry[];
   winner: Winner | null;
   winnerReason: string;
+  winnerDetails?: WinnerDetails;
   revealedRoles: RevealedRole[];
   servantCounts: Record<ServantVariant, number> | null;
   speechOrder: string[];
@@ -84,6 +97,7 @@ export interface PrivatePlayerState {
   servantVariant: ServantVariant | null;
   roleText: string;
   knowledge: string;
+  knowledgeInfo?: RoleKnowledgeInfo;
   canPropose: boolean;
   canVote: boolean;
   canMission: boolean;
@@ -252,6 +266,24 @@ export function getRoleKnowledge(
   }
 
   return "你没有额外初始信息。";
+}
+
+export function getRoleKnowledgeInfo(
+  current: { id: string; role: RoleKey },
+  players: Array<{ id: string; role: RoleKey }>,
+): RoleKnowledgeInfo {
+  const evilPlayers = players.filter((player) => ROLE_DEFS[player.role].side === "evil");
+  if (current.role === "merlin") {
+    return { kind: "evilPlayers", playerIds: evilPlayers.filter((player) => player.role !== "mordred").map((player) => player.id) };
+  }
+  if (current.role === "percival") {
+    return { kind: "merlinCandidates", playerIds: players.filter((player) => player.role === "merlin" || player.role === "morgana").map((player) => player.id) };
+  }
+  if (ROLE_DEFS[current.role].side === "evil" && current.role !== "oberon") {
+    return { kind: "evilCompanions", playerIds: evilPlayers.filter((player) => player.id !== current.id && player.role !== "oberon").map((player) => player.id) };
+  }
+  if (current.role === "oberon") return { kind: "oberon", playerIds: [] };
+  return { kind: "none", playerIds: [] };
 }
 
 function shuffle<T>(items: T[], random: () => number): T[] {

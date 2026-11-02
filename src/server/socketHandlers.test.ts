@@ -293,10 +293,12 @@ describe("Socket lobby state synchronization", () => {
     expect(joinAck.ok).toBe(true);
     const playerAuth = authFrom(joinAck);
     await hostStates.waitFor((state) => state.players.some((candidate) => candidate.id === playerAuth.playerId));
+    const beforeDisconnect = runtime.rooms.getPublicState(hostAuth.roomCode).revision!;
 
     player.disconnect();
 
-    await hostStates.waitFor((state) => state.players.some((candidate) => candidate.id === playerAuth.playerId && !candidate.connected));
+    const disconnected = await hostStates.waitFor((state) => state.players.some((candidate) => candidate.id === playerAuth.playerId && !candidate.connected));
+    expect(disconnected.revision).toBeGreaterThan(beforeDisconnect);
     const removed = await hostStates.waitFor(
       (state) => state.players.length === 1 && !state.players.some((candidate) => candidate.id === playerAuth.playerId),
     );
@@ -315,11 +317,13 @@ describe("Socket lobby state synchronization", () => {
     expect(joinAck.ok).toBe(true);
     const playerAuth = authFrom(joinAck);
     await hostStates.waitFor((state) => state.players.some((candidate) => candidate.id === playerAuth.playerId));
+    const beforeDisconnect = runtime.rooms.getPublicState(hostAuth.roomCode).revision!;
 
     player.disconnect();
-    await hostStates.waitFor((state) =>
+    const disconnected = await hostStates.waitFor((state) =>
       state.players.some((candidate) => candidate.id === playerAuth.playerId && !candidate.connected),
     );
+    expect(disconnected.revision).toBeGreaterThan(beforeDisconnect);
 
     const rejoiningPlayer = await connectClient();
     const rejoinAck = await emitAck(rejoiningPlayer, "room:rejoin", playerAuth);
@@ -328,6 +332,7 @@ describe("Socket lobby state synchronization", () => {
     const restored = await hostStates.waitFor((state) =>
       state.players.some((candidate) => candidate.id === playerAuth.playerId && candidate.connected),
     );
+    expect(restored.revision).toBeGreaterThan(disconnected.revision!);
     expect(restored.players.map((candidate) => candidate.id)).toContain(playerAuth.playerId);
 
     await new Promise((resolve) => setTimeout(resolve, 120));
@@ -337,6 +342,39 @@ describe("Socket lobby state synchronization", () => {
       state.players.some((candidate) => candidate.id === playerAuth.playerId && candidate.connected),
     );
     expect(stillPresent.players.map((candidate) => candidate.id)).toContain(playerAuth.playerId);
+  });
+
+  it("advances the revision when a socket switches from one valid player session to another", async () => {
+    const host = await connectClient();
+    const guest = await connectClient();
+    const hostAuth = authFrom(await emitAck(host, "room:create", { name: "Host" }));
+    const guestAuth = authFrom(await emitAck(guest, "room:join", { roomCode: hostAuth.roomCode, name: "Guest" }));
+    const before = runtime.rooms.getPublicState(hostAuth.roomCode).revision!;
+
+    expect((await emitAck(guest, "room:rejoin", hostAuth)).ok).toBe(true);
+
+    const state = runtime.rooms.getPublicState(hostAuth.roomCode);
+    expect(state.players.find(player => player.id === guestAuth.playerId)?.connected).toBe(false);
+    expect(state.revision).toBeGreaterThan(before);
+  });
+
+  it("advances the revision when a retried entry restores a disconnected player", async () => {
+    const cookie = "synthetic-entry-cookie";
+    const host = await connectClient(cookie);
+    const guest = await connectClient();
+    const creation = commandPayload("room:create", { name: "Host" });
+    const hostAuth = authFrom(await host.timeout(1000).emitWithAck("room:create", creation));
+    await emitAck(guest, "room:join", { roomCode: hostAuth.roomCode, name: "Guest" });
+    const guestStates = trackRoomStates(guest);
+    host.disconnect();
+    const disconnected = await guestStates.waitFor(state => state.players.some(player => player.id === hostAuth.playerId && !player.connected));
+    const reconnected = await connectClient(cookie);
+
+    expect(await reconnected.timeout(1000).emitWithAck("room:create", creation)).toMatchObject({ ok: true, ...hostAuth });
+
+    const state = runtime.rooms.getPublicState(hostAuth.roomCode);
+    expect(state.players.find(player => player.id === hostAuth.playerId)?.connected).toBe(true);
+    expect(state.revision).toBeGreaterThan(disconnected.revision!);
   });
 
   it("returns authoritative room state on explicit client sync", async () => {
@@ -572,11 +610,12 @@ async function finishClientSpeeches(sockets: ClientSocket[], auths: Auth[], room
   }
 }
 
-async function connectClient(): Promise<ClientSocket> {
+async function connectClient(cookie?: string): Promise<ClientSocket> {
   const client = createClient(serverUrl, {
     forceNew: true,
     reconnection: false,
     transports: ["websocket"],
+    ...(cookie ? { extraHeaders: { Cookie: cookie } } : {}),
   });
   clients.push(client);
 

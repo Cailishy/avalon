@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RoomManager } from "./roomManager";
+import { RoomManager as ProductionRoomManager, type RoomLimits, type RoomTimingOptions } from "./roomManager";
 import crypto from "node:crypto";
 import { ASSASSINATION_DURATION_MS, MISSION_RESULT_DURATION_MS, PROPOSAL_REJECTION_DURATION_MS, ROLE_REVEAL_DURATION_MS, TEAM_SELECTION_DURATION_MS, getTeamSize } from "../shared/game";
+
+class RoomManager extends ProductionRoomManager {
+  constructor(localUrls: string[], onRoomChanged?: (roomCode: string) => void, timing: RoomTimingOptions = {}, limits: RoomLimits = {}) {
+    super(localUrls, onRoomChanged, timing, limits, () => Math.random());
+  }
+}
 
 function createStartedRoom(count: number, names: string[] = []) {
   const manager = new RoomManager(["http://localhost:3000"]);

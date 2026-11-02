@@ -178,6 +178,59 @@ describe("Client session recovery", () => {
     expect(socket.emit.mock.calls.some(([event]) => event === "room:sync")).toBe(false);
   });
 
+  it("clears stale public snapshots when the saved player is no longer in the room", async () => {
+    await import("./main");
+    const current = roomState();
+    handlers.get("room:state")!(current);
+    expect(app.innerHTML).toContain("game-container");
+
+    handlers.get("room:state")!({ ...current, players: current.players.filter(player => player.id !== identity.playerId) });
+
+    expect(app.innerHTML).toContain('id="nameInput"');
+    expect(app.innerHTML).not.toContain("game-container");
+    expect(storage.has(sessionKey)).toBe(false);
+  });
+
+  it("ignores a late public snapshot from another room without deleting the active session", async () => {
+    await import("./main");
+    handlers.get("room:state")!(roomState());
+    handlers.get("room:state")!({ ...roomState(), roomCode: "FFFFF", players: [] });
+    expect(storage.has(sessionKey)).toBe(true);
+    expect(app.innerHTML).toContain("game-container");
+    expect(app.innerHTML).toContain("ABCDE");
+  });
+
+  it("does not replay reveal or victory overlays from late snapshots after leaving", async () => {
+    await import("./main");
+    handlers.get("room:state")!(roomState());
+    handlers.get("room:removed")!({ message: "Synthetic leave" });
+    const append = document.body.appendChild as ReturnType<typeof vi.fn>;
+    append.mockClear();
+    handlers.get("room:state")!({ ...roomState(), phase: "reveal", timer: { kind: "reveal", label: "身份揭晓", durationMs: 10000, deadline: Date.now() + 10000 } });
+    handlers.get("player:privateState")!(privatePlayer());
+    handlers.get("room:state")!({ ...roomState(), phase: "result", winner: "good" });
+    expect(append).not.toHaveBeenCalled();
+    expect(storage.has(sessionKey)).toBe(false);
+    expect(app.innerHTML).not.toContain("game-container");
+  });
+
+  it.each(["vote", "mission"] as const)("does not show an unconfirmed-action toast when the last %s submission advances the phase before its ack", async phase => {
+    let submit: (() => void) | undefined;
+    const action = phase === "vote" ? "vote-yes" : "mission-success";
+    const event = phase === "vote" ? "vote:submit" : "mission:submit";
+    app.querySelector.mockImplementation(selector => selector === `[data-action='${action}']` ? {
+      addEventListener: (_: string, callback: () => void) => { submit = callback; },
+    } : null);
+    await import("./main");
+    handlers.get("room:state")!({ ...roomState(), phase, proposal: [identity.playerId] });
+    handlers.get("player:privateState")!(privatePlayer({ canVote: phase === "vote", canMission: phase === "mission" }));
+    submit!();
+    const ack = socket.emit.mock.calls.find(([name]) => name === event)![2];
+    handlers.get("room:state")!({ ...roomState(), phaseId: `phase_${"b".repeat(32)}`, phase: phase === "vote" ? "mission" : "missionResult" });
+    ack({ ok: true });
+    expect(document.body.appendChild).not.toHaveBeenCalled();
+  });
+
   it("restores enabled lobby controls after successful reconnect with unchanged room state", async () => {
     await import("./main");
     handlers.get("room:state")!(roomState());

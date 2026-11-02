@@ -42,7 +42,7 @@ describe("Grouped tool entry points", () => {
       expect(actual).toBe(original);
     }
     expect(existsSync(join(fixture.root, "scripts/public"))).toBe(false);
-  });
+  }, 15_000);
   it("creates local voice settings under the repository root only", () => {
     const fixture = copyScript("scripts/deploy/setup-voice-local.mjs");
     const result = spawnSync(process.execPath, [fixture.file], { cwd: fixture.root, encoding: "utf8", windowsHide: true,

@@ -8,12 +8,12 @@ import { loadEnvFile } from "node:process";
 import express from "express";
 import helmet from "helmet";
 import { Server } from "socket.io";
-import { attachSocketHandlers } from "./socketHandlers";
+import { attachSocketHandlers } from "./adapters/socketHandlers";
 import { createAccessGate } from "./accessGate";
 import { readConfig } from "./config";
 import { ConnectionQuota, requestPolicy } from "./security";
 import { VoiceService, checkOptionalVoice } from "./voice";
-import { RoomStore } from "./roomStore";
+import { RoomStore } from "./infrastructure/roomStore";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");

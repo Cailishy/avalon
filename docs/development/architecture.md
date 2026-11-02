@@ -8,7 +8,31 @@
 
 `scripts` 按 `build`、`deploy`、`media`、`checks`、`verify` 分组，npm 命令名称保持稳定。命令从项目根目录执行；需要定位资源的工具从自身位置解析根目录，构建和恢复验证则使用工作目录或显式输出参数。输出仍在原本的 `dist`、`dist-server`、`.media` 或显式目标目录，不能因为移动而改写脚本目录中的新副本。Docker 与验证工具使用同一组入口；本地文档链接纳入 `npm run check` 与 CI。
 
-此次整理不改变 `src/client`、`src/server`、`src/shared` 的依赖方向、协议或数据库版本。单测继续与模块相邻，浏览器测试继续集中在 `tests/e2e`。维护资料不复制进产品首页，也不通过删除检查来隐藏发布条件。
+此次整理保持客户端协议、数据库版本和游戏行为不变，但把服务端入口按职责落到 `application`、`domain`、`adapters`、`infrastructure` 四个边界。根目录旧服务端路径保留极薄的兼容导出，方便现有测试和外部脚本迁移。单测继续与模块相邻，浏览器测试继续集中在 `tests/e2e`。维护资料不复制进产品首页，也不通过删除检查来隐藏发布条件。
+
+当前主要源码目录如下；这是实际目录，不是后续重构的目标图：
+
+```text
+src/
+  client/
+    main.ts                    浏览器组装、事件与媒体生命周期
+    state/                     服务器、界面与网络状态，视图 selectors
+    views/                     入口、圆桌、身份、操作、记录和弹窗
+    audio.ts / voice.ts        本地声音与可选实时语音
+  server/
+    index.ts                   HTTP、门禁、配置和服务启动
+    adapters/socketHandlers.ts Socket 适配及当前运行时组装
+    application/               命令执行器、房间应用服务与端口
+    domain/                    无副作用的判定、轮换与流程计算
+    infrastructure/            SQLite、快照和持久化协调
+    roomManager.ts             权威状态、计时器与阶段推进
+    roomAI.ts / roomRecovery.ts AI 调度与恢复协调
+    roomViews.ts               公开与本人私密投影
+    security.ts / voice.ts     请求防护与 LiveKit 授权
+  shared/                      规则、协议、错误码、旁白与语音契约
+```
+
+目前是分层中的模块化单体，不是已完成的六边形架构：Socket 适配器还承担运行时组装、来源配额、断线回收和广播保存协调；`RoomManager` 仍依赖快照恢复并持有真实计时器。纯领域函数和应用服务已形成边界，但完整候选状态、统一内部命令和独立组装根还未完成。迁移计划见[模块化拆分方案](modularization-plan.md)。
 
 ## 1. 总体架构
 
@@ -17,25 +41,28 @@
 - 一台电脑运行 Node 服务，默认监听 `0.0.0.0:3000`。
 - 房主在浏览器创建房间，其他玩家在同一 Wi-Fi 下访问 LAN 地址加入。
 - Express 同时提供 HTTP 服务、开发模式 Vite middleware 或生产静态资源托管。
-- Socket.IO 负责客户端事件、ack、房间广播和私密状态推送。
+- Socket.IO 负责客户端事件、ack、连接绑定、房间广播和私密状态推送；命令的一致性由应用层执行器负责。
 - `RoomManager` 是唯一权威状态源，客户端只提交用户意图。
 - 暗号入口独立于玩家房间会话：Express 校验入场 Cookie 后才返回游戏文档，Socket.IO 握手和后续事件也检查入场授权。
 - 可迁移公网模式使用共享 Caddy HTTPS → Node，不再依赖 Nginx。Compose 默认只有应用并映射回环端口，现有 Caddy 导入站点配置；没有网关才启用可选 `standalone` profile。固定代理信任，配置不完整时拒绝启动，不需要在开发电脑部署公网。
 - `VoiceService` 从权威游戏阶段派生发布权限，LiveKit 承载 WebRTC 音频，不通过游戏 Socket 发送音频文件。
 
-内存中的 `RoomManager` 是运行时事实源，每次可见状态变更先写入私有 SQLite，再广播/成功响应。重启从版本化快照恢复，停机期间暂停游戏倒计时，并给原在线玩家最多 60 秒重连。仍为单写者，不是分布式房间服务。前后端契约或服务器规则变更需一起部署；`npm run build` 构建 `dist/` 与 `dist-server/`，生产入口为 `node dist-server/server/index.js`。不能直接运行仅安装生产依赖的 TypeScript 源码。先在独立工作目录、端口和数据库路径验证，不覆盖在线静态资源或共用数据库。
+内存中的 `RoomManager` 是运行时事实源，应用命令先通过持久化适配器保存房间快照与回执，提交后才广播/返回成功；计时器和 AI 的自主推进仍通过同一持久化边界保存。当前状态对象是在保存前被修改，写入失败会立即暂停服务并阻止继续通知，候选状态提交后安装仍是后续改造项。重启从版本化快照恢复，停机期间暂停游戏倒计时，并给原在线玩家最多 60 秒重连。仍为单写者，不是分布式房间服务。前后端契约或服务器规则变更需一起部署；`npm run build` 构建 `dist/` 与 `dist-server/`，生产入口为 `node dist-server/server/index.js`。不能直接运行仅安装生产依赖的 TypeScript 源码。先在独立工作目录、端口和数据库路径验证，不覆盖在线静态资源或共用数据库。
 
 ```mermaid
 flowchart LR
   Gate["独立暗号页<br/>access.html / access.ts"] -- "POST /api/access" --> Access["后端门禁<br/>accessGate.ts"]
   Access -- "HttpOnly Cookie / 通过后加载" --> Client
   Client -- "握手及事件验签" --> Access
-  Client["浏览器客户端<br/>src/client/main.ts"] -- Socket.IO events + ack --> SocketLayer["Socket 事件层<br/>src/server/socketHandlers.ts"]
-  SocketLayer -- 调用权威操作 --> Rooms["RoomManager<br/>src/server/roomManager.ts"]
-  SocketLayer -- 广播和成功响应前提交 --> Persistence["RoomPersistence"]
-  Persistence -- 版本化快照 --> Store["RoomStore / 私有 SQLite"]
+  Client["浏览器客户端<br/>src/client/main.ts"] -- Socket.IO events + ack --> SocketLayer["Socket 适配层<br/>src/server/adapters/socketHandlers.ts"]
+  SocketLayer -- 命令 + 会话绑定 --> Commands["应用命令执行器<br/>src/server/application/commandExecutor.ts"]
+  Commands -- 编排房间用例 --> AppService["RoomApplicationService<br/>application/roomApplicationService.ts"]
+  AppService -- 调用房间端口 --> Rooms["运行时房间状态<br/>src/server/roomManager.ts"]
+  Commands -- 原子提交与回执 --> Persistence["持久化适配器<br/>infrastructure/roomPersistence.ts"]
+  Persistence -- 版本化快照 --> Store["RoomStore / 私有 SQLite<br/>infrastructure/"]
   Store -- 启动加载 --> Recovery["RoomRecovery / 60 秒重连"]
   Recovery --> Rooms
+  Rooms -- 纯判定与轮换 --> Domain["领域函数<br/>domain/roomRules.ts / roomFlow.ts"]
   Rooms -- 使用规则/类型 --> Rules["共享规则层<br/>src/shared/game.ts"]
   SocketLayer -- room:state --> Public["公开状态<br/>全房间"]
   SocketLayer -- player:privateState --> Private["私密状态<br/>单个玩家"]
@@ -51,28 +78,36 @@ flowchart LR
 - `src/server/voice.ts`：签发短期媒体授权、按权限 epoch 隔离媒体房间、启动预检与媒体清理。
 - `src/server/accessGate.ts`：暗号校验、IP 错误次数限制、签名入场 Cookie、页面和 Socket 授权；不参与房间身份或游戏胜负。
 - `access.html` / `src/client/access.ts`：独立入场文档及表单，不加载游戏入口、不读取玩家会话、不保存暗号。Vite 多入口同时构建 `index.html` 与 `access.html`。
-- `src/server/socketHandlers.ts`：绑定 Socket.IO 事件、管理 socket/player 映射、广播状态、处理大厅断线宽限。
-- `src/server/roomManager.ts`：维护权威状态机和领域校验，编排阶段推进；不承担模板渲染或 SQLite 实现。
+- `src/server/adapters/socketHandlers.ts`：把 Socket.IO 消息映射为应用命令，管理 socket/player 映射、广播状态和大厅断线宽限；不再直接编排每个房间业务方法。根目录 `socketHandlers.ts` 只保留兼容导出。
+- `src/server/application/commandExecutor.ts`：独立处理命令有效期、会话绑定、阶段版本、回执幂等、SQLite 提交及提交后通知；不依赖 Socket.IO 或具体房间连接。
+- `src/server/application/roomApplicationService.ts`：统一房间命令的应用编排，登记受影响房间，并把 AI 调度放到提交后副作用；只依赖 `RoomCommandPort`。
+- `src/server/application/roomPorts.ts`：应用层需要的房间用例端口，不通过 `RoomManager` 的具体类型反向绑定实现。
+- `src/server/roomManager.ts`：维护权威运行时状态、认证后的领域校验、阶段推进和真实计时器；它通过变更监听通知应用层，不直接持有 Socket 发布函数。它仍是当前单体中的状态机，后续可继续把状态转换拆成候选状态函数。
+- `src/server/domain/roomFlow.ts`：纯队长轮换、发言顺序、任务序号和任务后流程计算；不接触 Socket、SQLite 或真实计时器。
 - `src/server/roomTypes.ts`：运行时房间、玩家与计时器类型。
 - `src/server/roomViews.ts`：纯公开/私密状态投影，由服务端决定隐私边界和动作权限。
 - `src/server/roomAI.ts`：AI 调度与旧回调取消，通过领域操作回调行动，不绕过权限修改状态。
-- `src/server/roomSnapshot.ts`：v2 私有快照、v1 迁移、Map 序列化与严格结构/成员/阶段校验；不保存运行时句柄与旧部署 URL。
-- `src/server/roomStore.ts`：内置 SQLite、事务、独占写者锁、门禁密钥、快照容量和数据库版本边界。
-- `src/server/roomPersistence.ts`：恢复入口、提交/检查点/关闭边界；写入失败时暂停游戏。
+- `src/server/infrastructure/roomSnapshot.ts`：v2 私有快照、v1 迁移、Map 序列化与严格结构/成员/阶段校验；不保存运行时句柄与旧部署 URL。
+- `src/server/infrastructure/roomStore.ts`：内置 SQLite、事务、独占写者锁、门禁密钥、快照容量和数据库版本边界。
+- `src/server/infrastructure/roomPersistence.ts`：恢复入口、提交/检查点/关闭边界；只依赖 `RoomPersistenceRoomPort`，不直接依赖 `RoomManager`。写入失败时暂停游戏。根目录同名文件只保留兼容导出。
 - `src/server/roomRecovery.ts`：重连宽限、原玩家到齐检测、暂停期间剩余时间，不负责业务胜负判定。
 - `src/shared/game.ts`：共享类型、角色定义、人数表、任务人数、失败牌规则和私密信息推导。
-- `src/client/main.ts`：状态订阅、交互编排、草稿、事件绑定和去重，调用视图而非内嵌全部页面模板。
+- `src/client/main.ts`：浏览器组装入口、事件绑定和媒体生命周期；不再直接拥有三类业务状态。
+- `src/client/state/serverState.ts`：服务器公开/私密快照、玩家会话身份、同实例 `revision` 顺序校验与已退役实例旧包丢弃。版本号不跨实例比较；已绑定会话只接受本房间公开状态和本玩家私密状态，确认新会话时清除不匹配的快照。
+- `src/client/state/uiState.ts`：表单、选人草稿、弹窗、角色详情、任务详情和历史展开项等本地界面状态。
+- `src/client/state/networkState.ts`：连接、重连、校时、同步代次、待确认命令和超时提示状态。
+- `src/client/state/selectors.ts`：把三类状态转换成视图所需的窄 `GameViewContext`，视图不接触 Socket 或 localStorage。
 - `src/client/views/`：入口、圆桌/任务、身份、操作、历史/任务详情、规则/收藏馆和房间弹窗的纯渲染函数；显式接收 `GameViewContext` 或窄化参数，不访问 Socket、localStorage 或修改权威状态。
 - `src/client/viewHelpers.ts` / `roleCatalog.ts`：共享转义/展示计算、角色资料与规则展示数据，避免视图复制领域规则。
 - `src/shared/protocol.ts`：协议版本、命令白名单、阶段作用域、回执与校时类型。
-- `src/server/commandReceipt.ts`：私有回执 schema、有效期/容量边界；`socketHandlers.runCommand()` 编排校验、重放、原子提交和提交后通知。
-- `src/client/commandRequests.ts`：冻结用户意图、相同编号重试、迟到响应/回执核对、断线等待及超期处理。
+- `src/server/commandReceipt.ts`：私有回执 schema、有效期/容量边界；`application/commandExecutor.ts` 使用它完成重放、原子提交和提交后通知。
+- `src/client/commandRequests.ts`：冻结用户意图、相同编号重试、迟到响应/回执核对、断线等待及超期处理；Socket 重连时会复用未确认的 `room:rejoin` 请求，在新连接上立即恢复会话，不遗留禁用的操作面板。
 - `src/client/serverClock.ts`：基于 RTT 样本和单调时钟估算服务器时间；不修改服务器计时器。
 - `src/client/domRenderer.ts`：morphdom 节点差异更新、稳定键和每轮监听清理，不包含玩法逻辑。
 - `src/client/dialogMotion.ts`：按展示弹窗标题跟踪入场时间；新打开与切换内容播放动画，同标题重绘不重播，关闭后重开重新播放。不参与任何服务端阶段推进。
 - `src/client/table-theme.css`：当前启用的圆桌主题、全部页面及弹窗样式、响应式布局和结果动画。`styles.css` 为此前主题，当前入口不再加载。
 - `src/client/portraits.ts`：人物图集坐标及角色/公共座位映射；公共座位映射只依赖 `position`。
-- `src/client/roleLabels.ts`：角色展示统一加『』；完整角色名优先匹配且重复格式化不重复加标签。私密信息和胜利原因按现有服务端文案的固定前后缀保护中间的玩家昵称，随后由模板转义 HTML。若服务端修改这两类文案，须同步调整此模块及重名昵称测试。共享名称、卡片导航标识、权限和语音数据保持原值。
+- `src/client/roleLabels.ts`：角色展示统一加『』；完整角色名优先匹配且重复格式化不重复加标签。优先消费 `knowledgeInfo` / `winnerDetails` 结构化字段，旧 `knowledge` / `winnerReason` 仅作为兼容展示文本；模板仍统一转义 HTML。共享名称、卡片导航标识、权限和语音数据保持原值。
 - `src/client/audio.ts`：本地音乐生命周期、公开阶段播报、去重、音量和偏好存储。
 - `src/client/audioControls.ts`：独立挂载的声音设置面板；调整音量不触发整页重绘。
 - `src/client/voice.ts`：懒加载 LiveKit SDK、独立语音面板、收听/麦克风/音量、阶段重连和声音轨道清理。
@@ -109,7 +144,8 @@ flowchart LR
 - `votes`：发车表决记录。
 - `missionVotes`：任务牌提交记录。
 - `history`：公开历史，包含被否决的提案和已完成任务。
-- `winner / winnerReason`：结算结果。
+- `winner / winnerReason / winnerDetails`：结算结果；新客户端按 `winnerDetails.kind` 渲染，文本字段仅保留给旧客户端和历史展示。
+- `instanceId / revision`：房间实例和公开状态顺序；房间码重用时仍能区分新旧广播。
 - `timer`：服务端当前阶段计时，包含类型、标签、截止时间、总时长和可选发言人；揭晓、结果、发言和刺杀在 AI 房间也适用。
 - `speechOrder / speechIndex / speechNextLeaderIndex`：任务后发言的顺序、当前位置和已确定的下一位领队；否决后不发言。在线真人与 AI 都在顺序中。
 
@@ -117,7 +153,7 @@ flowchart LR
 
 公开状态也包含 `timer` 和仅含公开玩家 ID 的 `speechOrder` 副本。客户端用它们渲染倒计时、身份/结果展示和发言名单；揭晓结束、结果结束、组队超时轮转、超时默认投票/任务牌和发言推进仍由 `RoomManager` 权威执行。重连保留原截止时间，不能让本地动画完成回调决定下一阶段。`timer.kind` 新增 `team`，前后端必须一起部署；旧服务器不会执行组队计时和新版多数反对规则。
 
-私密状态 `PrivatePlayerState` 只发给对应玩家，包含角色、阵营、角色说明、私密信息和当前可执行动作：
+私密状态 `PrivatePlayerState` 只发给对应玩家，包含角色、阵营、角色说明、结构化 `knowledgeInfo`（玩家 ID 列表）及当前可执行动作；`knowledge` 是旧客户端兼容文案：
 
 `servantVariant: "male" | "female" | null` 是卡面外观，不是新角色。它只在开局为忠臣抽取，其余角色及大厅为 `null`；保存在 `PlayerInternal`，只向本人发送。`PublicRoomState.players` 绝不包含该字段，只有最终 `revealedRoles` 才公开原始分配。重连和状态读取不重新抽取，重开清空。客户端 `rolePortraitCell(role, servantVariant)` 不按 ID 或本地随机生成；缺少字段时仅回退到默认男性卡面。前后端需一起部署并刷新旧客户端。
 
@@ -194,7 +230,7 @@ type Ack = {
 ```mermaid
 sequenceDiagram
   participant C as CommandRequests
-  participant S as runCommand
+  participant S as CommandExecutor
   participant D as 私有 SQLite
   C->>S: 意图 + requestId + issuedAt + phaseId
   S->>D: 查原回执
@@ -202,15 +238,19 @@ sequenceDiagram
     D-->>S: 原结果
     S-->>C: 原 ack，不执行玩法
   else 新意图且阶段有效
-    S->>S: 领域校验与修改，暂缓通知
+  S->>S: 会话/阶段校验，调用 RoomManager，暂缓通知
     S->>D: 同一事务写 rooms 与 commands
-    S-->>C: 广播权威状态与 ack
+  S-->>C: 提交后广播权威状态与 ack
   end
   C->>S: 响应超时后核对 command:status / room:sync
   C->>S: 必要时以原编号重试
 ```
 
 超时不能被当成确定失败。客户端先发核对查询，并最多连续尝试 3 次同编号命令；仍无法确认则保留原请求等待重连/后续核对，迟到 ack 仍可完成它。请求超期不自动生成新意图；旧阶段已无法继续时提示以当前对局状态为准。浏览器刷新会丢弃内存中的未确认意图，但已有玩家身份仍走原重连流程；不声称“永久恰好一次”或跨门禁会话重放。
+
+数据库提交失败时不执行提交后副作用或成功广播。提交已经成功时，连接通知、AI 调度或广播的同步异常不能反过来修改已保存的结果：执行器逐项隔离异常，继续尝试其余通知，只记录不含原始错误的固定诊断；客户端仍可通过 `room:sync` 和 `command:status` 补偿。这里没有持久化通知队列，也不承诺每条瞬时通知必达。
+
+服务端先广播状态、再返回命令 ack，因此最后一张投票、最后一张任务牌或组队提交可能先收到新的 `phaseId`。这不能直接判成操作失败：在途请求继续等待原 ack 或回执核对，只有重试耗尽仍无结果时才显示“未确认”。结束发言可按权威发言人已切换提前释放操作。业务错误的 `GameError.code` 同时保留在 ack 和持久化回执中，不依赖错误文案识别会话失效或恢复中状态。
 
 ## 4. 生命周期与状态流
 
@@ -237,9 +277,11 @@ sequenceDiagram
 
 客户端保存 `{ roomCode, playerId, sessionToken, name }` 到 `localStorage`。刷新后用 `room:rejoin` 恢复连接。
 
+所有可见连接状态变化都推进房间 `revision`，包括 socket 更换绑定玩家、重复入场请求恢复原玩家等补偿路径。身份尚未确认时可暂存入场快照，但不播放身份揭晓或胜利弹窗；退出后的迟到消息也不能触发这些展示。
+
 自动重连在服务器明确否定身份时清理失效会话、状态和草稿；单纯请求超时不会删除原身份。`UNCONFIRMED` 只表示未确认，继续核对；成功重连恢复操作控件并重试仍有效的原请求。首页手动重连也不在没有成功响应时伪造已加入。
 
-客户端会周期性发送 `room:sync`，但不会每次都重绘页面。`src/client/main.ts` 会序列化最新 `room:state` 和 `player:privateState`，只有内容变化时才调用 `render()`，从而保持前后端通信一致但避免页面持续刷新。
+客户端会周期性发送 `room:sync`，但不会每次都重绘页面。Socket 消息先进入 `ServerStateStore`，由 `instanceId + revision` 丢弃旧包、由快照指纹去重；只有内容变化时才调用 `render()`，从而保持前后端通信一致但避免页面持续刷新。选人草稿由 `UiStateStore` 独立保存，网络状态由 `NetworkStateStore` 独立维护。
 
 模板仍生成目标 HTML，但 `domRenderer.patchHtml()` 使用 morphdom 对现有节点做差异更新，不再给 `#app.innerHTML` 整体赋值。圆桌/座位/历史/面板和同内容弹窗有稳定键，命令按钮按语义区分，避免把旧阶段焦点带到另一种操作。同一节点的滚动和光标由浏览器保留；不同弹窗创建新节点，不沿用旧滚动位置。每次绑定前用 AbortController 移除上次监听，声音/语音按钮也接收同一 signal，防止一个点击触发多次操作。它不是服务器增量协议，仍保留全量快照与序列化去重。
 
@@ -284,7 +326,7 @@ sequenceDiagram
 
 选择单文件 SQLite 是为了保持自托管安装简单，同时利用事务和崩溃恢复；不是为横向扩展准备的共享数据库。`locking_mode=EXCLUSIVE` 拒绝两个进程同时使用同一文件，`synchronous=FULL` 与回滚日志保障事务边界。不要放在网络共享目录或挂到多个副本。快照上限为 200 个房间、单条 256KiB，数据库约 128MiB（默认 4KiB 页），并非无限历史存储。
 
-命令提交顺序为领域校验/修改 → `RoomPersistence.commit()` 同一事务保存房间与结果回执 → 踢人/离房等通知与公开/私密广播 → ack。定时器与 AI 的自主推进仍用 `save()`。相同快照不重复写盘，1.5 秒 `room:sync` 只读取和校验；另有 1 秒检查点用于硬退出时推算暂停点。保存/回执/检查点失败会停止业务计时器、拒绝后续命令并使 `/healthz` 返回 503；数据库提交失败不能先发成功通知。重启以最后已提交状态为准。
+命令提交顺序由 `src/server/application/commandExecutor.ts` 统一协调：应用层校验 → `RoomApplicationService` 调用房间端口并登记受影响房间 → `RoomPersistence.commit()` 同一事务保存房间与结果回执 → 提交后执行踢人/离房、AI 调度和公开/私密广播 → ack。当前 `RoomManager` 会先修改内存对象，再由持久化适配器提交快照；如果写入失败，持久化层立即让房间进入暂停/拒绝状态，因此不会继续广播成功结果，但这还不是“候选状态提交后再安装”的完整实现。Socket 适配层只提供会话绑定和网络副作用。定时器与 AI 的自主推进仍通过状态变更回调保存。相同快照不重复写盘，1.5 秒 `room:sync` 只读取和校验；另有 1 秒检查点用于硬退出时推算暂停点。保存/回执/检查点失败会停止业务计时器、拒绝后续命令并使 `/healthz` 返回 503；重启以最后已提交状态为准。
 
 恢复流程：
 
@@ -434,7 +476,7 @@ flowchart TD
 
 ## 6. 客户端渲染策略
 
-客户端使用 vanilla TypeScript，页面渲染集中在 `main.ts`，角色标签、音频、声音控件和座位几何独立成模块：
+客户端使用 vanilla TypeScript，`main.ts` 负责组装和事件生命周期，页面渲染集中在 `views/`，状态和选择器独立成模块：
 
 - `renderLanding()`：未入房页面。
 - `renderGame()`：游戏页面。
@@ -445,14 +487,13 @@ flowchart TD
 - `renderQuestDetailModal()` / `getCompletedQuestDetails()`：只读已完成任务的发车与任务汇总。
 - `renderTimerBanner()` / `updateTimerDisplay()`：根据公开 `timer` 渲染顶部倒计时和最后 10 秒动画。
 
-重要状态：
+状态所有权：
 
-- `publicState`：公开状态，只来自服务端。
-- `privateState`：本人私密状态，只来自服务端。
-- `identity`：本地 session。
-- `pendingTeam / pendingQuestIndex`：领队本地草稿，提交前不广播。
-- `lastPublicStateJson / lastPrivateStateJson`：用于避免相同状态重复重绘。
-- `lastGameResultKey`：避免重复或重连时重播最终胜负动画。任务结果页面由权威 `missionResult` 阶段驱动，不再用历史触发临时弹层。
+- `ServerStateStore`：公开状态、本人私密状态和本地 session；只由服务端消息/会话动作更新。
+- `UiStateStore`：`pendingTeam / pendingQuestIndex`、弹窗、角色/任务详情、历史展开项和表单；提交前不广播。
+- `NetworkStateStore`：连接、重连、同步代次、待确认命令和校时请求；不保存游戏规则。
+- `instanceId + revision`：用于避免旧房间实例或旧状态包覆盖新状态。
+- `lastGameResultKey`：UI 状态中的去重键，避免重复或重连时重播最终胜负动画。任务结果页面由权威 `missionResult` 阶段驱动，不再用历史触发临时弹层。
 - `dialogMotion`：本地展示弹窗的入场时间；同标题弹窗复用原节点，不重复设置动画。切换内容或关闭后重开创建新节点，必要时用负延迟衔接当前入场进度。
 - `showSoloModal / soloPlayerCount`：单机人数选择；确认前不创建房间，修改人数不重播弹窗动画。
 - `selectedQuestForDetail`：本地任务详情序号；同一对局快照更新时保留，关弹窗、退出或该任务记录在重开后不存在时清理。
@@ -489,7 +530,12 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  State["服务器公开快照"] --> Main["main.ts render"]
+  Network["Socket.IO 消息"] --> ServerState["ServerStateStore"]
+  ServerState --> Selectors["selectors.ts"]
+  UIState["UiStateStore"] --> Selectors
+  NetState["NetworkStateStore"] --> Selectors
+  Selectors --> Main["main.ts / views"]
+  ServerState --> Main
   Main --> Audio["GameAudio.update"]
   Audio --> Mode["waiting / game 音轨"]
   Audio --> Effects["进入 missionResult: 成功或失败 WAV"]
@@ -506,7 +552,7 @@ flowchart LR
 
 #### 固定旁白资源发布
 
-`src/shared/narration.ts` 保存 MiniMax Serene Narrator 音色方向、16 条固定台词、时长预算和公开阶段选择函数。2026-10-20 已完成全部文件的 `ffprobe` 格式/时长检查与 FFmpeg 完整解码，并发布到 `public/assets/narration`、接入 `GameAudio`。1 条误合并样本未纳入包中，下载原件和制作记录仍在忽略提交的 `.media`。当前运行时只播放同源静态音频，已移除动态 Web Speech 路径；技术检查不代表人工逐句校对或对外再分发许可已确认。
+`src/shared/narration.ts` 保存 MiniMax Serene Narrator 音色方向、16 条固定台词、时长预算和公开阶段选择函数。2026-10-20 已完成全部文件的 `ffprobe` 格式/时长检查与 FFmpeg 完整解码，并发布到 `public/assets/narration`、接入 `GameAudio`。1 条误合并样本未纳入包中，下载原件和制作记录仍在忽略提交的 `.media`。当前运行时只播放同源静态音频，已移除动态 Web Speech 路径；维护者已于 2026-10-29 确认现有包可随项目分发，范围以[录音分发说明](../../public/assets/narration/NOTICE.md)为准，不将录音重新授权为 MIT / CC0。技术检查不替代逐句试听或条款审核。
 
 `narration:script` 导出制作模板，不请求 MiniMax。`narration:verify` 用本机 `ffprobe` 检查完整 MP3 包、音轨、大小、时长和哈希，不修改游戏。`narration:publish` 先验收全部预期文件，再写入带内容哈希的 MP3，最后更新静态清单；不完整输入或冲突资源不会替换旧清单，重复发布同一包结果稳定，不自动清理旧哈希文件。前端在构建时导入清单，日常构建和运行都不需要 FFmpeg 或 TTS 密钥。更新音频时重新发布并构建，部署时同时更新前端与音频文件，并保留旧哈希文件供已打开的旧客户端使用。详见 [固定旁白制作与发布](../media/narration.md)。
 
@@ -571,9 +617,9 @@ AI 延迟动作由 `aiTimeout` 跟踪，`clearAISimulation()` 在关闭运行时
 
 ### 服务端
 
-- 所有权威校验放在 `RoomManager`，不要只在 Socket 层或客户端校验。
-- 修改房间状态的方法应抛出明确中文错误，Socket 层统一转换为 `{ ok: false, error }`。
-- 新规则先补 `roomManager.test.ts`，再接 Socket 层。
+- 权威权限仍由 `RoomManager` 检查，纯判定放在 `domain`，命令编排放在 `application`；不要只在 Socket 层或客户端校验。
+- 新业务错误优先使用 `GameError` 和稳定错误码，由执行器/适配器转换为 `{ ok: false, code, error }`；不要通过中文文案推断行为。
+- 新纯规则先补 `domain/*.test.ts`，阶段/计时改动补 `roomManager.test.ts`；所有业务命令通过应用服务和执行器接入。
 - 多客户端广播或重连行为要补 `socketHandlers.test.ts`。
 - 持久化字段变动须同步 `roomTypes.ts`、快照 schema、序列化和恢复测试；不兼容变更显式升级版本并提供迁移，不能默认丢弃旧数据。
 - 向玩家宣布的状态变更必须经过持久化边界；不要在保存前成功 ack，也不要在写盘失败后继续游戏。

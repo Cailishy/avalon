@@ -17,10 +17,12 @@ export interface CommandMeta {
   phaseId?: string;
 }
 
+import type { ErrorCode } from "./errors";
+
 export interface GameAck {
   ok: boolean;
   error?: string;
-  code?: string;
+  code?: ErrorCode | string;
   roomCode?: string;
   playerId?: string;
   sessionToken?: string;

@@ -150,6 +150,29 @@ describe("Durable real-socket runtime", () => {
     } finally { write.mockRestore(); error.mockRestore(); }
   });
 
+  it("keeps a committed command successful after a broadcast failure and repairs the view on sync", async () => {
+    const instance = await start(); const host = await connect(instance, await unlock(instance));
+    host.auth = session(await send(host, "room:create", { name: "Host" }));
+    const request = commandPayload("room:setPlayerCount", { ...host.auth, targetPlayerCount: 6 }, host.state!.phaseId);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broadcast = vi.spyOn(instance.io, "to").mockImplementationOnce(() => { throw new Error("Private transport diagnostics"); });
+    try {
+      const answer = await host.socket.timeout(5000).emitWithAck("room:setPlayerCount", request);
+      expect(answer).toEqual({ ok: true });
+      expect(instance.runtime.isHealthy()).toBe(true);
+      expect(instance.store.load().rooms[0].targetPlayerCount).toBe(6);
+      expect(host.state!.targetPlayerCount).toBe(5);
+      expect(await host.socket.timeout(5000).emitWithAck("room:setPlayerCount", request)).toEqual(answer);
+      expect(await host.socket.timeout(5000).emitWithAck("command:status", {
+        requestId: request.requestId, event: "room:setPlayerCount", sessionToken: host.auth.sessionToken,
+      })).toMatchObject({ ok: true, result: answer });
+      await send(host, "room:sync");
+      expect(host.state!.targetPlayerCount).toBe(6);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(error.mock.calls)).not.toContain("Private transport diagnostics");
+    } finally { broadcast.mockRestore(); error.mockRestore(); }
+  });
+
   it("does not notify a kicked player before committing their removal", async () => {
     const instance = await start(); const cookie = await unlock(instance);
     const host = await connect(instance, cookie);

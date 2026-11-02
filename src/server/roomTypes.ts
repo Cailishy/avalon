@@ -1,4 +1,4 @@
-import type { QuestHistoryEntry, RoleKey, RoomPhase, ServantVariant, TimerKind, Winner } from "../shared/game";
+import type { QuestHistoryEntry, RoleKey, RoomPhase, ServantVariant, TimerKind, Winner, WinnerDetails } from "../shared/game";
 import type { RoomRecoveryState } from "./roomRecovery";
 
 export interface PlayerInternal {
@@ -16,6 +16,8 @@ export interface PlayerInternal {
 
 export interface RoomInternal {
   phaseId: string;
+  revision: number;
+  instanceId?: string;
   recovery?: RoomRecoveryState;
   code: string;
   hostId: string;
@@ -32,6 +34,7 @@ export interface RoomInternal {
   history: QuestHistoryEntry[];
   winner: Winner | null;
   winnerReason: string;
+  winnerDetails?: WinnerDetails;
   localUrls: string[];
   aiSimulating?: boolean;
   aiTimeout?: NodeJS.Timeout;

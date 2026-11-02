@@ -1,7 +1,7 @@
 import { ALIGNMENT_COUNTS, FACTION_NAMES, ROLE_DEFS, getRoleCounts, type PublicRoomState } from "../../shared/game";
 import { icon } from "../icons";
 import { portraitMarkup, rolePortraitCell, seatPortraitMarkup } from "../portraits";
-import { formatRoleKnowledge, formatRoleName, formatRoleText } from "../roleLabels";
+import { formatRoleKnowledge, formatRoleKnowledgeInfo, formatRoleName, formatRoleText } from "../roleLabels";
 import { escapeHtml, getTargetPlayerCount } from "../viewHelpers";
 import type { GameViewContext } from "./context";
 
@@ -62,7 +62,7 @@ export function renderRolePanel(context: GameViewContext): string {
         <span class="role-badge ${sideClass}">${FACTION_NAMES[priv.side ?? "good"]}</span>
         <div class="role-description">${escapeHtml(formatRoleText(priv.roleText))}</div>
       </div>
-      ${priv.knowledge ? `<section class="role-knowledge"><h3>私密信息</h3><p>${escapeHtml(formatRoleKnowledge(priv.knowledge))}</p></section>` : ""}`}
+      ${priv.knowledge ? `<section class="role-knowledge"><h3>私密信息</h3><p>${escapeHtml(priv.knowledgeInfo ? formatRoleKnowledgeInfo(priv.knowledgeInfo, publicState.players) : formatRoleKnowledge(priv.knowledge))}</p></section>` : ""}`}
     </div>
   `;
 }

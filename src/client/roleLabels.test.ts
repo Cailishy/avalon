@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ROLE_DEFS, getRoleKnowledge } from "../shared/game";
-import { formatRoleKnowledge, formatRoleName, formatRoleText, formatWinnerReason } from "./roleLabels";
+import { formatRoleKnowledge, formatRoleKnowledgeInfo, formatRoleName, formatRoleText, formatWinnerReason } from "./roleLabels";
 
 describe("Role labels", () => {
   it.each(Object.values(ROLE_DEFS).map(role => role.name))("labels %s without changing the definition", name => {
@@ -48,6 +48,12 @@ describe("Role labels", () => {
     expect(formatRoleKnowledge("梅林不会识别莫德雷德。")).toBe("『梅林』不会识别『莫德雷德』。");
   });
 
+  it("renders structured knowledge by player id without parsing player names", () => {
+    expect(formatRoleKnowledgeInfo({ kind: "merlinCandidates", playerIds: ["p_2", "p_3"] }, [
+      { id: "p_2", name: "正方" }, { id: "p_3", name: "梅林候选人" },
+    ])).toBe("你看到的『梅林？』：正方、梅林候选人。");
+  });
+
   it.each(["梅林候选", "梅林候选人", "『梅林』候选", "『梅林』候选人", "『梅林？』"])("renders uncertain Merlin consistently and idempotently: %s", phrase => {
     expect(formatRoleText(`你看到的是${phrase}。`)).toBe("你看到的是『梅林？』。");
     expect(formatRoleText(formatRoleText(phrase))).toBe("『梅林？』");
@@ -78,5 +84,10 @@ describe("Role labels", () => {
       .toBe("你看到的藏锋者玩家：正方、反方、藏锋者、梅林。");
     expect(formatWinnerReason("刺客命中 正方反方，梅林阵亡。"))
       .toBe("『刺客』命中 正方反方，『梅林』阵亡。");
+  });
+
+  it("prefers structured winner details over legacy prose", () => {
+    expect(formatWinnerReason("内部旧文案", { kind: "missionFailure" })).toBe("三个任务失败，藏锋者获胜。");
+    expect(formatWinnerReason("内部旧文案", { kind: "assassinTimeout" })).toBe("刺客未在规定时间内选择目标，守誓者获胜。");
   });
 });

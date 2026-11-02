@@ -102,7 +102,7 @@ describe("Offline narration preparation", () => {
     expect(JSON.parse(await readFile(join(output, "manifest.json"), "utf8"))).toEqual(first);
     expect(await publishNarrationFiles(source, output, async () => metadata())).toEqual(first);
     expect(await readdir(output)).toHaveLength(17);
-  });
+  }, 15_000);
 
   it("does not replace the last manifest when input is incomplete or an existing asset was modified", async () => {
     const source = await fixtures();

@@ -5,6 +5,7 @@ interface Transport {
   emit(event: string, payload: object, ack: (result?: CommandStatusReply) => void): unknown;
 }
 type Pending = { event: string; payload: Record<string, unknown>; callback: (ack: GameAck) => void; timer?: ReturnType<typeof setTimeout>; attempts: number; waiting: boolean };
+type PendingCommand = Pick<Pending, "event" | "payload">;
 
 export class CommandRequests {
   private pending = new Map<string, Pending>();
@@ -13,6 +14,7 @@ export class CommandRequests {
     now: () => number;
     reconcile: () => void;
     uncertain: () => void;
+    confirmPhaseChange?: (request: PendingCommand) => boolean;
     canSend?: (event: string) => boolean;
     timeoutMs?: number;
     requestId?: () => string;
@@ -40,10 +42,25 @@ export class CommandRequests {
     }
   }
 
+  retry(event: string): boolean {
+    const request = this.pending.get(event);
+    if (!request) return false;
+    clearTimeout(request.timer);
+    request.timer = undefined;
+    request.waiting = false;
+    this.attempt(request);
+    return true;
+  }
+
   phaseChanged(): void {
     for (const request of this.pending.values()) {
-      if (request.waiting && needsPhase(request.event) && request.payload.phaseId !== this.options.phaseId()) {
-        this.finish(request, { ok: false, code: "UNCONFIRMED", error: "原操作尚未确认，阶段已更新，请以当前对局状态为准。" });
+      if (needsPhase(request.event) && request.payload.phaseId !== this.options.phaseId()) {
+        const confirmed = this.options.confirmPhaseChange?.(request) ?? false;
+        // The server publishes before acknowledging the command that advanced it.
+        if (!confirmed && !request.waiting) continue;
+        this.finish(request, confirmed
+          ? { ok: true }
+          : { ok: false, code: "UNCONFIRMED", error: "原操作尚未确认，阶段已更新，请以当前对局状态为准。" });
       }
     }
   }

@@ -15,7 +15,8 @@ npm run dev
 
 ## 修改边界
 
-- `src/server/roomManager.ts` 是游戏规则与阶段推进的权威来源，不能只修改前端判断。
+- 服务端是模块化单体：`adapters` 负责通信适配，`application` 负责命令与提交编排，`domain` 负责纯规则计算，`infrastructure` 负责 SQLite 与快照。`roomManager.ts` 仍持有权威状态并协调阶段、计时器、AI 和恢复；不能只修改前端判断。
+- 新业务命令同时接入 `RoomApplicationService`、命令白名单和严格负载校验；应用层通过 `RoomCommandPort` 调用，不导入 Socket、数据库实现或具体管理器。新增边界受 `npm run architecture:check` 检查。
 - `src/shared/` 定义规则、类型和协议；修改事件时一起更新运行时校验、调用方、回执、测试和架构文档。
 - 公开状态不能泄露身份或未公开任务牌；私密投影、刺杀亮明和终局公开分别测试。
 - 客户端保留本地选人草稿，不能用同步快照覆盖它；不重建媒体生命周期。
@@ -40,7 +41,7 @@ npm run check
 npm run build:e2e
 ```
 
-`check` 包含仓库文件/YAML/素材台账、文档本地链接、lint、类型和单元测试；不读取 `.env` 或启动线上服务。`build:e2e` 只写 `.media/e2e-build`，不覆盖在线 `dist`。完整测试命令及工具目录见 [测试说明](docs/development/testing.md)，文档导航见 [文档索引](docs/README.md)。
+`check` 包含仓库文件/YAML/素材台账、文档本地链接、架构边界、lint、类型和单元/集成测试；不读取 `.env` 或启动线上服务。`build:e2e` 只写 `.media/e2e-build`，不覆盖在线 `dist`。完整测试命令及工具目录见 [测试说明](docs/development/testing.md)，文档导航见 [文档索引](docs/README.md)。
 
 新增/替换媒体须按 [素材审核流程](docs/media/provenance.md)复核来源与分发条件，取得批准后更新文件摘要；不能仅因文件名/目录相同就沿用旧许可结论，也不能只重算摘要使 CI 通过。确认范围内的项目自制媒体另有 MIT 素材许可，第三方及 MiniMax 不自动适用。
 

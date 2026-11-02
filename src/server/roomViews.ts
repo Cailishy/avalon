@@ -1,4 +1,4 @@
-import { ROLE_DEFS, getRequiredFails, getRoleKnowledge, getTeamSize, type PrivatePlayerState, type PublicRoomState, type RoleKey } from "../shared/game";
+import { ROLE_DEFS, getRequiredFails, getRoleKnowledge, getRoleKnowledgeInfo, getTeamSize, type PrivatePlayerState, type PublicRoomState, type RoleKey } from "../shared/game";
 import type { PlayerInternal, RoomInternal } from "./roomTypes";
 
 export function publicRoomState(room: RoomInternal): PublicRoomState {
@@ -21,6 +21,8 @@ export function publicRoomState(room: RoomInternal): PublicRoomState {
 
     return {
       phaseId: room.phaseId,
+      revision: room.revision,
+      ...(room.instanceId ? { instanceId: room.instanceId } : {}),
       ...(recovery ? { recovery: { deadline: recovery.deadline, connected: recovery.expectedPlayerIds.filter(id => room.players.some(player => player.id === id && player.connected)).length, expected: recovery.expectedPlayerIds.length } } : {}),
       roomCode: room.code,
       phase: room.phase,
@@ -47,6 +49,7 @@ export function publicRoomState(room: RoomInternal): PublicRoomState {
       history: [...room.history],
       winner: room.winner,
       winnerReason: room.winnerReason,
+      ...(room.winnerDetails ? { winnerDetails: { ...room.winnerDetails } } : {}),
       revealedRoles,
       servantCounts: hasGame ? {
         male: room.players.filter(player => player.role === "servant" && player.servantVariant === "male").length,
@@ -78,6 +81,7 @@ export function privatePlayerState(room: RoomInternal, player: PlayerInternal): 
       servantVariant: player.servantVariant,
       roleText: roleDef?.text ?? "",
       knowledge: role ? getRoleKnowledge({ id: player.id, name: player.name, role }, gamePlayers) : "",
+      knowledgeInfo: role ? getRoleKnowledgeInfo({ id: player.id, role }, gamePlayers) : { kind: "none", playerIds: [] },
       canPropose: !room.recovery && room.phase === "team" && room.players[room.leaderIndex]?.id === player.id,
       canVote: !room.recovery && room.phase === "vote" && room.players[room.leaderIndex]?.id !== player.id && !room.votes.has(player.id),
       canMission: !room.recovery && room.phase === "mission" && room.proposal.includes(player.id) && !room.missionVotes.has(player.id),

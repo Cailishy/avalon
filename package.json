@@ -30,13 +30,14 @@
     "lint": "eslint . --max-warnings=0",
     "repo:check": "node scripts/checks/check-repository.mjs",
     "docs:check": "node scripts/checks/check-docs.mjs",
+    "architecture:check": "node scripts/checks/check-boundaries.mjs",
     "source:export": "node scripts/checks/export-source.mjs",
     "release:check": "node scripts/checks/check-repository.mjs --release",
     "audit:secrets": "node scripts/checks/check-secrets.mjs",
     "deploy:init": "node --import tsx scripts/deploy/deployment.mjs init",
     "deploy:check": "node --import tsx scripts/deploy/deployment.mjs check",
     "deploy:caddy": "node --import tsx scripts/deploy/deployment.mjs caddy",
-    "check": "npm run repo:check && npm run docs:check && npm run lint && npm run typecheck && npm test",
+    "check": "npm run repo:check && npm run docs:check && npm run architecture:check && npm run lint && npm run typecheck && npm test",
     "voice:local": "node scripts/deploy/setup-voice-local.mjs",
     "voice:verify": "node --import tsx scripts/verify/verify-voice.mjs",
     "recovery:verify": "node scripts/verify/verify-recovery.mjs",
@@ -44,6 +45,9 @@
     "narration:verify": "node --import tsx scripts/media/narration.ts --verify",
     "narration:publish": "node --import tsx scripts/media/narration.ts --publish",
     "gateway:verify": "node --import tsx scripts/verify/verify-gateway.mjs"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   },
   "dependencies": {
     "express": "^4.22.3",

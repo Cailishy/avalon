@@ -8,12 +8,11 @@ import { DialogMotion } from "./dialogMotion";
 import { icon } from "./icons";
 import { portraitMarkup, rolePortraitCell } from "./portraits";
 import { getCompletedQuestDetails } from "./questDetails";
-import { formatRoleKnowledge, formatRoleName, formatRoleText, formatWinnerReason } from "./roleLabels";
+import { formatRoleKnowledge, formatRoleKnowledgeInfo, formatRoleName, formatRoleText, formatWinnerReason } from "./roleLabels";
 import "./table-theme.css";
 import { minimumTableDiameter, tableLayout } from "./tableLayout";
 import { escapeHtml, getTargetPlayerCount, getTimerRemainingMs } from "./viewHelpers";
 import * as views from "./views";
-import type { GameViewContext } from "./views/context";
 import { renderEntry } from "./views/entry";
 import { renderGalleryModal, renderRoleDetailModal, renderRulesModal } from "./views/helpDialogs";
 import { renderDissolveConfirmModal, renderLeaveConfirmModal, renderShareModal, renderSoloModal } from "./views/roomDialogs";
@@ -22,9 +21,13 @@ import { CommandRequests } from "./commandRequests";
 import { serverClock } from "./serverClock";
 import { PROTOCOL_VERSION, type ClockReply, type GameAck } from "../shared/protocol";
 import { patchHtml, RenderEvents } from "./domRenderer";
+import { NetworkStateStore } from "./state/networkState";
+import { ServerStateStore, type ClientIdentity } from "./state/serverState";
+import { selectGameViewContext } from "./state/selectors";
+import { UiStateStore } from "./state/uiState";
 
 type Ack = GameAck;
-type Identity = { roomCode: string; playerId: string; sessionToken: string; name: string };
+type Identity = ClientIdentity;
 
 const SESSION_KEY = "awalong-lan-session";
 const STATE_SYNC_INTERVAL_MS = 1500;
@@ -56,20 +59,14 @@ const SYNC_AFTER_ACK_EVENTS = new Set([
 const socket: Socket = io();
 const app = document.querySelector<HTMLDivElement>("#app");
 
-let publicState: PublicRoomState | null = null;
-let privateState: PrivatePlayerState | null = null;
-let identity: Identity | null = readSession();
-let toastTimer: number | null = null;
-let pendingTeam = new Set<string>();
-let pendingTeamDraftKey = "";
-let pendingQuestIndex = 0;
-let lastPublicStateJson = "";
-let lastPrivateStateJson = "";
-let lastGameResultKey = "";
+const serverState = new ServerStateStore(readSession());
+const landingMode: "create" | "join" = window.location.search.includes("room=") ? "join" : "create";
+const uiState = new UiStateStore(landingMode, { name: "", roomCode: new URLSearchParams(window.location.search).get("room") ?? "", count: "5" });
+const networkState = new NetworkStateStore(socket.connected);
 const gameAudio = new GameAudio((message) => showToast(message));
 const voice = new VoiceChat({
   requestAccess: () => new Promise((resolve, reject) => {
-    if (!identity || !socket.connected) { reject(new Error("游戏连接已断开。")); return; }
+    if (!serverState.identity || !socket.connected) { reject(new Error("游戏连接已断开。")); return; }
     socket.timeout(7000).emit("voice:join", authPayload(), (error: Error | null, result: Ack & { access?: VoiceAccess }) => {
       if (error || !result?.ok || !result.access) reject(new Error(result?.error ?? "语音连接超时。"));
       else resolve(result.access);
@@ -82,51 +79,24 @@ let tableObserver: ResizeObserver | null = null;
 let tableSurface: HTMLElement | null = null;
 const renderEvents = new RenderEvents();
 const listen = renderEvents.listen.bind(renderEvents);
-let showRulesModal = false;
-let showGalleryModal = false;
-let showShareModal = false;
-let showDissolveConfirm = false;
-let showLeaveConfirm = false;
-let hidePrivateRole = false;
-let roleConfigurationExpanded = false;
-let pendingAssassinTarget: string | null = null;
-let gallerySide = "all";
-let landingMode: "create" | "join" = window.location.search.includes("room=") ? "join" : "create";
-const landingDraft = { name: "", roomCode: new URLSearchParams(window.location.search).get("room") ?? "", count: "5" };
-let showRoleDetailModal = false;
-let showSoloModal = false;
-let selectedQuestForDetail: number | null = null;
-let soloPlayerCount = 5;
-const expandedVoteRecords = new Set<string>();
 const dialogMotion = new DialogMotion();
 const animatedDialogs = new WeakSet<HTMLElement>();
-let selectedRoleForDetail: string | null = null;
-let roleDetailReturnTo: "rules" | "gallery" | null = null;
-let rulesPlayerCount = 5;
-let serverConnected = socket.connected;
-let sessionReady = socket.connected;
-let syncInFlight = false;
-let stateSyncGeneration = 0;
-const pendingActions = new Set<string>();
-let clockGeneration = 0;
-let clockInFlight = false;
-let uncertainNotice = false;
 const commands = new CommandRequests(socket, {
-  phaseId: () => publicState?.phaseId,
+  phaseId: () => serverState.publicState?.phaseId,
   now: () => serverClock.now(),
-  canSend: () => !identity || sessionReady,
+  canSend: () => !serverState.identity || networkState.sessionReady,
+  confirmPhaseChange: request => {
+    if (request.event !== "speech:end") return false;
+    const state = serverState.publicState;
+    const playerId = request.payload.playerId;
+    return state?.phase !== "speech" || state.timer?.speakerId !== playerId;
+  },
   reconcile: () => { syncClock(); requestStateSync(); },
   uncertain: () => {
-    if (!uncertainNotice) showToast("操作结果尚未确认，连接恢复后会继续核对。");
-    uncertainNotice = true;
+    if (!networkState.uncertainNotice) showToast("操作结果尚未确认，连接恢复后会继续核对。");
+    networkState.uncertainNotice = true;
   },
 });
-
-function viewContext(): GameViewContext {
-  return { publicState: publicState!, privateState, identity, pendingTeam, pendingQuestIndex, pendingAssassinTarget, pendingActions, serverConnected: serverConnected && (!identity || sessionReady), roleConfigurationExpanded, hidePrivateRole, expandedVoteRecords };
-}
-let reconnectAttempts = 0;
-let showReconnectingIndicator = false;
 
 if (!app) throw new Error("App root not found");
 
@@ -136,8 +106,8 @@ window.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
   const close = document.querySelector<HTMLElement>(".role-reveal-overlay .modal-close") ?? app?.querySelector<HTMLElement>(".modal-content .modal-close");
   close?.click();
-  if (!close && roleConfigurationExpanded) {
-    roleConfigurationExpanded = false;
+  if (!close && uiState.roleConfigurationExpanded) {
+    uiState.roleConfigurationExpanded = false;
     render();
   }
 });
@@ -150,21 +120,27 @@ socket.on("server:hello", (hello: { protocolVersion?: number }) => {
 });
 
 socket.on("connect", () => {
-  const wasDisconnected = !serverConnected;
-  serverConnected = true;
-  reconnectAttempts = 0;
-  showReconnectingIndicator = false;
+  const wasDisconnected = !networkState.serverConnected;
+  networkState.markConnected();
   syncClock(true);
 
-  if (identity) {
-    sessionReady = false;
+  if (serverState.identity) {
+    networkState.sessionReady = false;
+    if (networkState.pendingActions.has("room:rejoin")) {
+      // The previous reconnect attempt may still be waiting for an ack. Keep
+      // its idempotent request and retry it on the fresh socket instead of
+      // letting the duplicate-event guard leave the session locked.
+      commands.retry("room:rejoin");
+      render();
+      return;
+    }
     emitAck("room:rejoin", authPayload(), (ack) => {
       if (!ack.ok) {
-        if (ack.code === "UNCONFIRMED" && sessionReady) return;
-        if (isSessionInvalid(ack.error ?? "")) leaveLocal(ack.error);
+        if (ack.code === "UNCONFIRMED" && networkState.sessionReady) return;
+        if (isSessionInvalid(ack.error ?? "", ack.code)) leaveLocal(ack.error);
         else showToast(ack.error ?? "重连尚未确认，正在继续核对。");
       } else {
-        sessionReady = true;
+        networkState.sessionReady = true;
         if (wasDisconnected) {
           showToast("已重新连接", "success");
         }
@@ -174,20 +150,17 @@ socket.on("connect", () => {
       }
     });
   } else {
-    sessionReady = true;
+    networkState.sessionReady = true;
     commands.resume();
     render();
   }
 });
 
 socket.on("disconnect", (reason) => {
-  clockGeneration++;
-  clockInFlight = false;
-  serverConnected = false;
-  sessionReady = false;
-  syncInFlight = false;
-  stateSyncGeneration++;
-  showReconnectingIndicator = false;
+  networkState.clockGeneration++;
+  networkState.clockInFlight = false;
+  networkState.markDisconnected();
+  networkState.showReconnectingIndicator = false;
   if (reason === "io server disconnect") {
     showToast("连接已断开");
   }
@@ -201,54 +174,51 @@ socket.on("connect_error", (error) => {
     window.location.reload();
     return;
   }
-  serverConnected = false;
-  sessionReady = false;
-  syncInFlight = false;
-  stateSyncGeneration++;
-  reconnectAttempts += 1;
+  networkState.markDisconnected();
+  networkState.reconnectAttempts += 1;
 
-  if (reconnectAttempts >= 3 && !showReconnectingIndicator) {
-    showReconnectingIndicator = true;
+  if (networkState.reconnectAttempts >= 3 && !networkState.showReconnectingIndicator) {
+    networkState.showReconnectingIndicator = true;
     render();
   }
 });
 
 socket.on("room:state", (state: PublicRoomState) => {
-  const nextStateJson = JSON.stringify(state);
-  const stateChanged = nextStateJson !== lastPublicStateJson;
-  const wasRecovering = Boolean(publicState?.recovery);
+  const previousState = serverState.publicState;
+  const applied = serverState.applyPublic(state);
+  if (!applied.accepted) return;
+  // Entry snapshots can arrive before the join ack; defer their UI effects.
+  if (!serverState.identity) return;
+  if (!state.players.some(player => player.id === serverState.identity?.playerId)) { render(); return; }
+  const stateChanged = applied.changed;
+  const wasRecovering = applied.wasRecovering;
 
   // Rejoining a finished game must not replay its victory animation.
-  if (lastPublicStateJson === "") {
+  if (!previousState) {
     if (state.phase === "result" && state.winner) {
-      lastGameResultKey = `${state.roomCode}:${state.winner}:${state.winnerReason}`;
+      uiState.lastGameResultKey = `${state.roomCode}:${state.winner}:${state.winnerReason}`;
     }
   }
 
   maybeShowGameResult(state);
-  lastPublicStateJson = nextStateJson;
-  publicState = state;
   commands.phaseChanged();
   if (state.recovery || state.phase !== "reveal") document.querySelector(".role-reveal-overlay")?.remove();
-  if (state.phase !== "assassin") pendingAssassinTarget = null;
-  if (state.phase === "lobby") lastGameResultKey = "";
+  if (state.phase !== "assassin") uiState.pendingAssassinTarget = null;
+  if (state.phase === "lobby") uiState.lastGameResultKey = "";
   reconcilePendingTeam(state);
   if (state.phase === "lobby") {
-    expandedVoteRecords.clear();
-    rulesPlayerCount = getTargetPlayerCount(state);
+    uiState.expandedVoteRecords.clear();
+    uiState.rulesPlayerCount = getTargetPlayerCount(state);
   }
   if (stateChanged) render();
-  if (wasRecovering && !state.recovery && state.phase === "reveal" && privateState?.role) showRoleReveal(privateState);
+  if (wasRecovering && !state.recovery && state.phase === "reveal" && serverState.privateState?.role) showRoleReveal(serverState.privateState);
 });
 
 socket.on("player:privateState", (state: PrivatePlayerState) => {
-  const nextStateJson = JSON.stringify(state);
-  const stateChanged = nextStateJson !== lastPrivateStateJson;
-  lastPrivateStateJson = nextStateJson;
-  const hadRole = privateState?.role;
-  privateState = state;
+  const { accepted, changed: stateChanged, hadRole } = serverState.applyPrivate(state);
+  if (!accepted || !serverState.identity) return;
 
-  if (!hadRole && state.role && publicState?.phase === "reveal" && !publicState.recovery) {
+  if (!hadRole && state.role && serverState.publicState?.phase === "reveal" && !serverState.publicState.recovery) {
     showRoleReveal(state);
   } else if (stateChanged) {
     render();
@@ -269,16 +239,16 @@ window.setInterval(() => requestStateSync(), STATE_SYNC_INTERVAL_MS);
 window.setInterval(() => syncClock(), 30_000);
 
 function syncClock(force = false): void {
-  if (force) { clockGeneration++; clockInFlight = false; serverClock.forgetSamples(); }
-  if (!socket.connected || clockInFlight) return;
-  clockInFlight = true;
-  const generation = ++clockGeneration;
+  if (force) { networkState.clockGeneration++; networkState.clockInFlight = false; serverClock.forgetSamples(); }
+  if (!socket.connected || networkState.clockInFlight) return;
+  networkState.clockInFlight = true;
+  const generation = ++networkState.clockGeneration;
   const sent = performance.now();
-  const timer = window.setTimeout(() => { if (generation === clockGeneration) clockInFlight = false; }, 5000);
+  const timer = window.setTimeout(() => { if (generation === networkState.clockGeneration) networkState.clockInFlight = false; }, 5000);
   socket.emit("clock:sync", {}, (reply?: ClockReply) => {
-    if (generation !== clockGeneration) return;
+    if (generation !== networkState.clockGeneration) return;
     window.clearTimeout(timer);
-    clockInFlight = false;
+    networkState.clockInFlight = false;
     if (reply && serverClock.sample(sent, reply)) { updateTimerDisplay(); commands.resume(); }
   });
 }
@@ -318,32 +288,13 @@ function leaveForced(message: string): void {
 
 function leaveLocal(message?: string): void {
   commands.cancel();
-  pendingActions.clear();
+  networkState.pendingActions.clear();
   closeSoundSettings();
   document.querySelectorAll(".role-reveal-overlay, .mission-result-overlay, .game-result-overlay").forEach(overlay => overlay.remove());
   clearSession();
-  publicState = null;
-  privateState = null;
-  lastPublicStateJson = "";
-  lastPrivateStateJson = "";
-  pendingTeam.clear();
-  pendingTeamDraftKey = "";
-  pendingQuestIndex = 0;
-  lastGameResultKey = "";
-  pendingAssassinTarget = null;
-  showLeaveConfirm = false;
-  hidePrivateRole = false;
-  roleConfigurationExpanded = false;
-  showRulesModal = false;
-  showGalleryModal = false;
-  showShareModal = false;
-  showDissolveConfirm = false;
-  showRoleDetailModal = false;
-  selectedRoleForDetail = null;
-  roleDetailReturnTo = null;
-  showSoloModal = false;
-  selectedQuestForDetail = null;
-  expandedVoteRecords.clear();
+  serverState.clear();
+  uiState.resetSessionView();
+  uiState.lastGameResultKey = "";
   render();
   if (message) showToast(message);
 }
@@ -352,7 +303,7 @@ function showRoleReveal(state: PrivatePlayerState): void {
   const sideClass = state.side === "good" ? "good" : state.side === "evil" ? "evil" : "";
 
   document.querySelector(".role-reveal-overlay")?.remove();
-  const remainingMs = getTimerRemainingMs(publicState?.timer?.deadline ?? serverClock.now());
+  const remainingMs = getTimerRemainingMs(serverState.publicState?.timer?.deadline ?? serverClock.now());
   const overlay = document.createElement("div");
   overlay.className = "role-reveal-overlay";
   overlay.innerHTML = `
@@ -362,7 +313,7 @@ function showRoleReveal(state: PrivatePlayerState): void {
         <p>你的身份</p>
         <h2 class="role-name-reveal">${escapeHtml(formatRoleName(state.roleName))}</h2>
         <div class="role-side-badge ${sideClass}">${FACTION_NAMES[state.side ?? "good"]}</div>
-        <p>${escapeHtml(formatRoleKnowledge(state.knowledge))}</p>
+        <p>${escapeHtml(state.knowledgeInfo && serverState.publicState ? formatRoleKnowledgeInfo(state.knowledgeInfo, serverState.publicState.players) : formatRoleKnowledge(state.knowledge))}</p>
         <div class="identity-countdown"><span>身份揭晓</span><strong data-phase-countdown>${Math.ceil(remainingMs / 1000)} 秒</strong></div>
         <div class="identity-progress"><div data-phase-progress style="width:100%"></div></div>
       </div>
@@ -379,8 +330,10 @@ function showRoleReveal(state: PrivatePlayerState): void {
 
 function render(): void {
   renderEvents.reset();
-  gameAudio.update(identity ? publicState : null, identity?.playerId ?? null, serverConnected);
-  voice.updateContext(identity && publicState ? identity.roomCode : null, serverConnected);
+  const identity = serverState.identity;
+  const publicState = serverState.publicState;
+  gameAudio.update(identity ? publicState : null, identity?.playerId ?? null, networkState.serverConnected);
+  voice.updateContext(identity && publicState ? identity.roomCode : null, networkState.serverConnected);
   if (!identity || !publicState) {
     renderLanding();
     return;
@@ -389,7 +342,7 @@ function render(): void {
   const me = publicState.players.find((player) => player.id === identity?.playerId);
   if (!me) {
     clearSession();
-    gameAudio.update(null, null, serverConnected);
+    gameAudio.update(null, null, networkState.serverConnected);
     renderLanding();
     return;
   }
@@ -402,22 +355,22 @@ function renderLanding(): void {
   tableObserver = null;
   tableSurface = null;
   patchHtml(app!, renderEntry({
-    landingMode, landingDraft, hasPreviousSession: !!identity, soundControls: soundButton(gameAudio, "icon-btn"),
+    landingMode: uiState.landingMode, landingDraft: uiState.landingDraft, hasPreviousSession: !!serverState.identity, soundControls: soundButton(gameAudio, "icon-btn"),
     dialogs: {
-      rules: showRulesModal ? renderRulesModal(rulesPlayerCount) : "",
-      gallery: showGalleryModal ? renderGalleryModal(gallerySide) : "",
-      detail: showRoleDetailModal && selectedRoleForDetail ? renderRoleDetailModal(selectedRoleForDetail) : "",
-      solo: showSoloModal ? renderSoloModal(soloPlayerCount) : "",
-      share: showShareModal && publicState ? renderShareModal(publicState.roomCode, getShareLinks()) : "",
-      dissolve: showDissolveConfirm ? renderDissolveConfirmModal() : "",
+      rules: uiState.showRulesModal ? renderRulesModal(uiState.rulesPlayerCount) : "",
+      gallery: uiState.showGalleryModal ? renderGalleryModal(uiState.gallerySide) : "",
+      detail: uiState.showRoleDetailModal && uiState.selectedRoleForDetail ? renderRoleDetailModal(uiState.selectedRoleForDetail) : "",
+      solo: uiState.showSoloModal ? renderSoloModal(uiState.soloPlayerCount) : "",
+      share: uiState.showShareModal && serverState.publicState ? renderShareModal(serverState.publicState.roomCode, getShareLinks()) : "",
+      dissolve: uiState.showDissolveConfirm ? renderDissolveConfirmModal() : "",
     },
   }));
   bindLandingActions();
 }
 
 function renderGame(myId: string): void {
-  const state = publicState!;
-  if (selectedQuestForDetail !== null && !getCompletedQuestDetails(state, selectedQuestForDetail)) selectedQuestForDetail = null;
+  const state = serverState.publicState!;
+  if (uiState.selectedQuestForDetail !== null && !getCompletedQuestDetails(state, uiState.selectedQuestForDetail)) uiState.selectedQuestForDetail = null;
 
   patchHtml(app!, `
     <div class="game-container" data-render-key="game:${state.roomCode}" data-phase="${state.phase}" data-phase-id="${state.phaseId}">
@@ -452,39 +405,39 @@ function renderGame(myId: string): void {
         <aside class="record-stack" data-render-key="records">${state.phase === "lobby" ? renderLobbyRoster(myId) : renderHistoryPanel()}</aside>
       </main>
     </div>
-    ${showRulesModal ? renderRulesModal(rulesPlayerCount) : ""}
-    ${showGalleryModal ? renderGalleryModal(gallerySide) : ""}
-    ${showShareModal && publicState ? renderShareModal(publicState.roomCode, getShareLinks()) : ""}
-    ${showDissolveConfirm ? renderDissolveConfirmModal() : ""}
-    ${showLeaveConfirm ? renderLeaveConfirmModal(publicState!.roomCode) : ""}
-    ${showRoleDetailModal && selectedRoleForDetail ? renderRoleDetailModal(selectedRoleForDetail) : ""}
-    ${selectedQuestForDetail !== null ? renderQuestDetailModal(selectedQuestForDetail) : ""}
+    ${uiState.showRulesModal ? renderRulesModal(uiState.rulesPlayerCount) : ""}
+    ${uiState.showGalleryModal ? renderGalleryModal(uiState.gallerySide) : ""}
+    ${uiState.showShareModal ? renderShareModal(state.roomCode, getShareLinks()) : ""}
+    ${uiState.showDissolveConfirm ? renderDissolveConfirmModal() : ""}
+    ${uiState.showLeaveConfirm ? renderLeaveConfirmModal(state.roomCode) : ""}
+    ${uiState.showRoleDetailModal && uiState.selectedRoleForDetail ? renderRoleDetailModal(uiState.selectedRoleForDetail) : ""}
+    ${uiState.selectedQuestForDetail !== null ? renderQuestDetailModal(uiState.selectedQuestForDetail) : ""}
   `);
 
   positionPlayersInCircle();
   bindGameActions(myId);
   voice.bind(app!, renderEvents.signal);
   voice.refresh();
-  for (const event of pendingActions) disableActionButtons(event);
+  for (const event of networkState.pendingActions) disableActionButtons(event);
 }
 
 function renderRoleConfiguration(state: PublicRoomState): string {
-  return views.renderRoleConfiguration(viewContext(), state);
+  return views.renderRoleConfiguration(selectGameViewContext(serverState, uiState, networkState), state);
 }
 
 function renderQuestTrack(): string {
-  return views.renderQuestTrack(viewContext());
+  return views.renderQuestTrack(selectGameViewContext(serverState, uiState, networkState));
 }
 
 function renderConnectionStatus(): string {
-  if (!showReconnectingIndicator && serverConnected) return "";
+  if (!networkState.showReconnectingIndicator && networkState.serverConnected) return "";
 
-  if (showReconnectingIndicator && !serverConnected) {
+  if (networkState.showReconnectingIndicator && !networkState.serverConnected) {
     return `
       <div class="connection-status reconnecting">
         <span class="status-icon">⚠️</span>
         <span class="status-text">正在重连服务器...</span>
-        <span class="status-attempt">(尝试 ${reconnectAttempts})</span>
+        <span class="status-attempt">(尝试 ${networkState.reconnectAttempts})</span>
       </div>
     `;
   }
@@ -493,6 +446,7 @@ function renderConnectionStatus(): string {
 }
 
 function renderTimerBanner(): string {
+  const publicState = serverState.publicState;
   const timer = publicState?.timer;
   if (!timer) return "";
   const remainingMs = getTimerRemainingMs(timer.deadline);
@@ -516,7 +470,7 @@ function renderTimerBanner(): string {
 }
 
 function updateTimerDisplay(): void {
-  const timer = publicState?.timer;
+  const timer = serverState.publicState?.timer;
   const element = document.querySelector<HTMLElement>(".game-timer");
   if (!timer || !element) return;
 
@@ -539,28 +493,28 @@ function formatTimerSeconds(seconds: number): string {
 }
 
 function renderRoundTable(myId: string): string {
-  return views.renderRoundTable(viewContext(), myId);
+  return views.renderRoundTable(selectGameViewContext(serverState, uiState, networkState), myId);
 }
 
 function renderRolePanel(): string {
-  return views.renderRolePanel(viewContext());
+  return views.renderRolePanel(selectGameViewContext(serverState, uiState, networkState));
 }
 
 function renderLobbyRoster(myId: string): string {
-  return views.renderLobbyRoster(viewContext(), myId);
+  return views.renderLobbyRoster(selectGameViewContext(serverState, uiState, networkState), myId);
 }
 
 function renderActionPanel(myId: string): string {
-  return views.renderActionPanel(viewContext(), myId);
+  return views.renderActionPanel(selectGameViewContext(serverState, uiState, networkState), myId);
 }
 
 function renderHistoryPanel(): string {
-  return views.renderHistoryPanel(viewContext());
+  return views.renderHistoryPanel(selectGameViewContext(serverState, uiState, networkState));
 }
 
 
 function renderQuestDetailModal(questIndex: number): string {
-  return views.renderQuestDetailModal(viewContext(), questIndex);
+  return views.renderQuestDetailModal(selectGameViewContext(serverState, uiState, networkState), questIndex);
 }
 
 
@@ -602,17 +556,17 @@ function positionPlayersInCircle(): void {
 
 function bindLandingActions(): void {
   app!.querySelectorAll<HTMLInputElement>("#nameInput, #joinNameInput").forEach(input => {
-    listen(input, "input", () => { landingDraft.name = input.value; });
+    listen(input, "input", () => { uiState.landingDraft.name = input.value; });
   });
   listen(app!.querySelector<HTMLInputElement>("#roomInput"), "input", event => {
-    landingDraft.roomCode = (event.target as HTMLInputElement).value;
+    uiState.landingDraft.roomCode = (event.target as HTMLInputElement).value;
   });
   listen(app!.querySelector<HTMLSelectElement>("#createPlayerCount"), "change", event => {
-    landingDraft.count = (event.target as HTMLSelectElement).value;
+    uiState.landingDraft.count = (event.target as HTMLSelectElement).value;
   });
   app!.querySelectorAll<HTMLElement>("[data-entry-mode]").forEach(button => {
     listen(button, "click", () => {
-      landingMode = button.dataset.entryMode === "join" ? "join" : "create";
+      uiState.landingMode = button.dataset.entryMode === "join" ? "join" : "create";
       render();
     });
   });
@@ -664,14 +618,14 @@ function bindLandingActions(): void {
   });
 
   listen(app!.querySelector("[data-action='rejoin']"), "click", () => {
-    if (!identity) return;
+    if (!serverState.identity) return;
     showPageTransition(() => {
       emitAck("room:rejoin", authPayload(), (ack) => {
         if (!ack.ok) {
-          if (isSessionInvalid(ack.error ?? "")) leaveLocal(ack.error);
+          if (isSessionInvalid(ack.error ?? "", ack.code)) leaveLocal(ack.error);
           else showToast(ack.error ?? "重连尚未确认，请稍后重试。");
         } else {
-          sessionReady = true;
+          networkState.sessionReady = true;
           commands.resume();
           requestStateSync();
           render();
@@ -681,35 +635,35 @@ function bindLandingActions(): void {
   });
 
   listen(app!.querySelector("[data-action='show-rules']"), "click", () => {
-    showRulesModal = true;
+    uiState.showRulesModal = true;
     render();
   });
 
   listen(app!.querySelector("[data-action='show-gallery']"), "click", () => {
-    showGalleryModal = true;
+    uiState.showGalleryModal = true;
     render();
   });
 
   listen(app!.querySelector("[data-action='show-share']"), "click", () => {
-    showShareModal = true;
+    uiState.showShareModal = true;
     render();
   });
 
   bindSoundSettings(app!, gameAudio, renderEvents.signal);
 
   listen(app!.querySelector("[data-action='solo']"), "click", () => {
-    soloPlayerCount = Number(landingDraft.count);
-    showSoloModal = true;
+    uiState.soloPlayerCount = Number(uiState.landingDraft.count);
+    uiState.showSoloModal = true;
     render();
   });
 
   listen(app!.querySelector("[data-action='solo-start']"), "click", () => {
-    const name = landingDraft.name.trim() || "测试玩家";
-    const targetPlayerCount = soloPlayerCount;
+    const name = uiState.landingDraft.name.trim() || "测试玩家";
+    const targetPlayerCount = uiState.soloPlayerCount;
     emitAck("room:create", { name, targetPlayerCount }, (ack) => {
       const { roomCode, playerId, sessionToken } = ack;
       if (ack.ok && roomCode && playerId && sessionToken) {
-        showSoloModal = false;
+        uiState.showSoloModal = false;
         render();
         const hostAuth = {
           roomCode,
@@ -736,25 +690,25 @@ function bindLandingActions(): void {
 }
 
 function bindGameActions(myId: string): void {
-  const priv = privateState;
+  const priv = serverState.privateState;
 
   listen(app!.querySelector("[data-action='toggle-private']"), "click", () => {
-    hidePrivateRole = !hidePrivateRole;
+    uiState.hidePrivateRole = !uiState.hidePrivateRole;
     render();
   });
 
   app!.querySelectorAll("[data-action='show-share']").forEach(button => listen(button, "click", () => {
-    showShareModal = true;
+    uiState.showShareModal = true;
     render();
   }));
 
   listen(app!.querySelector("[data-action='show-rules']"), "click", () => {
-    showRulesModal = true;
+    uiState.showRulesModal = true;
     render();
   });
 
   listen(app!.querySelector("[data-action='show-gallery']"), "click", () => {
-    showGalleryModal = true;
+    uiState.showGalleryModal = true;
     render();
   });
 
@@ -772,11 +726,11 @@ function bindGameActions(myId: string): void {
   });
 
   listen(app!.querySelector("[data-action='leave']"), "click", () => {
-    showLeaveConfirm = true;
+    uiState.showLeaveConfirm = true;
     render();
   });
   listen(app!.querySelector("[data-action='leave-confirm']"), "click", () => {
-    if (!identity) return;
+    if (!serverState.identity) return;
     if (!ensureServerConnected()) return;
     const payload = authPayload();
     emitAck("room:leave", payload, (ack) => {
@@ -797,7 +751,7 @@ function bindGameActions(myId: string): void {
 
   listen(app!.querySelector("[data-action='ready']"), "click", () => {
     if (!ensureServerConnected()) return;
-    const me = publicState!.players.find((player) => player.id === myId);
+    const me = serverState.publicState!.players.find((player) => player.id === myId);
     if (!me) return;
     const nextReady = !me.ready;
     emitAck("player:setReady", { ...authPayload(), ready: nextReady }, (ack) => {
@@ -813,7 +767,7 @@ function bindGameActions(myId: string): void {
       return;
     }
     const targetPlayerCount = parseInt((event.target as HTMLSelectElement).value, 10);
-    rulesPlayerCount = targetPlayerCount;
+    uiState.rulesPlayerCount = targetPlayerCount;
     emitAck("room:setPlayerCount", { ...authPayload(), targetPlayerCount }, ackToast);
   });
 
@@ -824,13 +778,13 @@ function bindGameActions(myId: string): void {
 
   listen(app!.querySelector("[data-action='dissolve']"), "click", () => {
     if (!ensureServerConnected()) return;
-    showDissolveConfirm = true;
+    uiState.showDissolveConfirm = true;
     render();
   });
 
   listen(app!.querySelector("[data-action='propose']"), "click", () => {
     if (!ensureServerConnected()) return;
-    emitAck("team:propose", { ...authPayload(), team: [...pendingTeam], questIndex: pendingQuestIndex }, ackToast);
+    emitAck("team:propose", { ...authPayload(), team: [...uiState.pendingTeam], questIndex: uiState.pendingQuestIndex }, ackToast);
   });
 
   listen(app!.querySelector("[data-action='vote-yes']"), "click", () => {
@@ -892,8 +846,8 @@ function bindGameActions(myId: string): void {
       listen(btn, "click", () => {
         const nextQuestIndex = Number((btn as HTMLElement).dataset.questIndex);
         if (!Number.isInteger(nextQuestIndex)) return;
-        pendingQuestIndex = nextQuestIndex;
-        pendingTeam = new Set([...pendingTeam].slice(0, getTeamSizeForDisplay(nextQuestIndex)));
+        uiState.pendingQuestIndex = nextQuestIndex;
+        uiState.pendingTeam = new Set([...uiState.pendingTeam].slice(0, getTeamSizeForDisplay(nextQuestIndex)));
         render();
       });
     });
@@ -903,19 +857,19 @@ function bindGameActions(myId: string): void {
   }
 
   // Player selection for assassination
-  if (publicState?.phase === "assassin" && priv?.canAssassinate) {
+  if (serverState.publicState?.phase === "assassin" && priv?.canAssassinate) {
     app!.querySelectorAll(".player-card").forEach((card) => {
       listen(card, "click", () => {
         const targetId = (card as HTMLElement).dataset.playerId;
-        if (!targetId || publicState?.phase !== "assassin" || targetId === myId || publicState.revealedRoles.some(role => role.playerId === targetId)) return;
+        if (!targetId || serverState.publicState?.phase !== "assassin" || targetId === myId || serverState.publicState.revealedRoles.some(role => role.playerId === targetId)) return;
 
-        pendingAssassinTarget = pendingAssassinTarget === targetId ? null : targetId;
+        uiState.pendingAssassinTarget = uiState.pendingAssassinTarget === targetId ? null : targetId;
         render();
       });
     });
     listen(app!.querySelector("[data-action='assassinate']"), "click", () => {
-      if (publicState?.phase !== "assassin" || !privateState?.canAssassinate || !pendingAssassinTarget || !ensureServerConnected()) return;
-      emitAck("assassin:choose", { ...authPayload(), targetId: pendingAssassinTarget }, ackToast);
+      if (serverState.publicState?.phase !== "assassin" || !serverState.privateState?.canAssassinate || !uiState.pendingAssassinTarget || !ensureServerConnected()) return;
+      emitAck("assassin:choose", { ...authPayload(), targetId: uiState.pendingAssassinTarget }, ackToast);
     });
   }
 
@@ -933,26 +887,28 @@ function bindGameActions(myId: string): void {
 }
 
 function toggleTeamPlayer(playerId?: string): void {
-  if (!playerId || publicState?.phase !== "team" || publicState.leaderId !== identity?.playerId || !privateState?.canPropose || pendingActions.has("team:propose")) return;
-  const player = publicState.players.find(candidate => candidate.id === playerId);
+  const state = serverState.publicState;
+  if (!playerId || state?.phase !== "team" || state.leaderId !== serverState.identity?.playerId || !serverState.privateState?.canPropose || networkState.pendingActions.has("team:propose")) return;
+  const player = state.players.find(candidate => candidate.id === playerId);
   if (!player?.connected) {
     showToast("不能选择已断线玩家");
     return;
   }
-  if (pendingTeam.has(playerId)) pendingTeam.delete(playerId);
-  else if (pendingTeam.size < getTeamSizeForDisplay(pendingQuestIndex)) pendingTeam.add(playerId);
+  if (uiState.pendingTeam.has(playerId)) uiState.pendingTeam.delete(playerId);
+  else if (uiState.pendingTeam.size < getTeamSizeForDisplay(uiState.pendingQuestIndex)) uiState.pendingTeam.add(playerId);
   render();
 }
 
 function showOwnRoleDetail(): void {
+  const privateState = serverState.privateState;
   if (!privateState?.roleName) return;
-  showRulesModal = false;
-  showGalleryModal = false;
-  showShareModal = false;
-  showDissolveConfirm = false;
-  showRoleDetailModal = true;
-  selectedRoleForDetail = privateState.role === "servant" && privateState.servantVariant === "female" ? "亚瑟的忠臣（女性）" : privateState.roleName;
-  roleDetailReturnTo = null;
+  uiState.showRulesModal = false;
+  uiState.showGalleryModal = false;
+  uiState.showShareModal = false;
+  uiState.showDissolveConfirm = false;
+  uiState.showRoleDetailModal = true;
+  uiState.selectedRoleForDetail = privateState.role === "servant" && privateState.servantVariant === "female" ? "亚瑟的忠臣（女性）" : privateState.roleName;
+  uiState.roleDetailReturnTo = null;
   render();
 }
 
@@ -960,24 +916,24 @@ function bindModalActions(): void {
   app!.querySelectorAll<HTMLElement>("[data-modal-panel]").forEach(panel => listen(panel, "click", event => event.stopPropagation()));
   app!.querySelectorAll<HTMLDetailsElement>("[data-vote-record]").forEach(details => listen(details, "toggle", () => {
     const recordId = details.dataset.voteRecord!;
-    if (details.open) expandedVoteRecords.add(recordId);
-    else expandedVoteRecords.delete(recordId);
+    if (details.open) uiState.expandedVoteRecords.add(recordId);
+    else uiState.expandedVoteRecords.delete(recordId);
   }));
   listen(app!.querySelector("#soloPlayerCount"), "change", event => {
     const count = Number((event.target as HTMLSelectElement).value);
     if (!Number.isInteger(count) || count < 5 || count > 10) return;
-    soloPlayerCount = count;
+    uiState.soloPlayerCount = count;
     render();
   });
   listen(app!.querySelector("[data-action='toggle-role-configuration']"), "click", () => {
-    roleConfigurationExpanded = !roleConfigurationExpanded;
+    uiState.roleConfigurationExpanded = !uiState.roleConfigurationExpanded;
     render();
   });
   app!.querySelectorAll<HTMLElement>("[data-role-detail]").forEach(card => listen(card, "click", () => {
-    roleConfigurationExpanded = false;
-    selectedRoleForDetail = card.dataset.roleDetail ?? null;
-    showRoleDetailModal = !!selectedRoleForDetail;
-    roleDetailReturnTo = null;
+    uiState.roleConfigurationExpanded = false;
+    uiState.selectedRoleForDetail = card.dataset.roleDetail ?? null;
+    uiState.showRoleDetailModal = !!uiState.selectedRoleForDetail;
+    uiState.roleDetailReturnTo = null;
     render();
   }));
   const dialogs = app!.querySelectorAll<HTMLElement>(".modal-content");
@@ -995,51 +951,51 @@ function bindModalActions(): void {
     dialog.parentElement.style.setProperty("--dialog-offset", `-${elapsed}ms`);
   }
   app!.querySelectorAll("[data-action='leave-cancel']").forEach(button => listen(button, "click", () => {
-    showLeaveConfirm = false;
+    uiState.showLeaveConfirm = false;
     render();
   }));
   app!.querySelectorAll<HTMLElement>("[data-gallery-side]").forEach(button => listen(button, "click", () => {
-    gallerySide = button.dataset.gallerySide ?? "all";
+    uiState.gallerySide = button.dataset.gallerySide ?? "all";
     render();
   }));
   app!.querySelectorAll("[data-action='close-modal']").forEach((btn) => {
     listen(btn, "click", () => {
-      showRulesModal = false;
-      showGalleryModal = false;
-      showShareModal = false;
-      showDissolveConfirm = false;
-      showLeaveConfirm = false;
-      showSoloModal = false;
-      selectedQuestForDetail = null;
-      if (showRoleDetailModal && roleDetailReturnTo) {
-        showRoleDetailModal = false;
-        selectedRoleForDetail = null;
-        showRulesModal = roleDetailReturnTo === "rules";
-        showGalleryModal = roleDetailReturnTo === "gallery";
-        roleDetailReturnTo = null;
+      uiState.showRulesModal = false;
+      uiState.showGalleryModal = false;
+      uiState.showShareModal = false;
+      uiState.showDissolveConfirm = false;
+      uiState.showLeaveConfirm = false;
+      uiState.showSoloModal = false;
+      uiState.selectedQuestForDetail = null;
+      if (uiState.showRoleDetailModal && uiState.roleDetailReturnTo) {
+        uiState.showRoleDetailModal = false;
+        uiState.selectedRoleForDetail = null;
+        uiState.showRulesModal = uiState.roleDetailReturnTo === "rules";
+        uiState.showGalleryModal = uiState.roleDetailReturnTo === "gallery";
+        uiState.roleDetailReturnTo = null;
       } else {
-        showRoleDetailModal = false;
-        selectedRoleForDetail = null;
-        roleDetailReturnTo = null;
+        uiState.showRoleDetailModal = false;
+        uiState.selectedRoleForDetail = null;
+        uiState.roleDetailReturnTo = null;
       }
       render();
     });
   });
 
   listen(app!.querySelector("#rulePlayerCount"), "change", (e) => {
-    rulesPlayerCount = parseInt((e.target as HTMLSelectElement).value);
+    uiState.rulesPlayerCount = parseInt((e.target as HTMLSelectElement).value);
     render();
   });
 
   app!.querySelectorAll("[data-action='dissolve-cancel']").forEach((btn) => {
     listen(btn, "click", () => {
-      showDissolveConfirm = false;
+      uiState.showDissolveConfirm = false;
       render();
     });
   });
 
   listen(app!.querySelector("[data-action='dissolve-confirm']"), "click", () => {
-    showDissolveConfirm = false;
+    uiState.showDissolveConfirm = false;
     emitAck("room:dissolve", authPayload(), (ack) => {
       if (ack.ok) {
         leaveForced("房间已解散。");
@@ -1054,10 +1010,10 @@ function bindModalActions(): void {
       e.stopPropagation();
       const roleName = (btn as HTMLElement).dataset.role;
       if (roleName) {
-        showRulesModal = false;
-        showRoleDetailModal = true;
-        selectedRoleForDetail = roleName;
-        roleDetailReturnTo = "rules";
+        uiState.showRulesModal = false;
+        uiState.showRoleDetailModal = true;
+        uiState.selectedRoleForDetail = roleName;
+        uiState.roleDetailReturnTo = "rules";
         render();
       }
     });
@@ -1067,10 +1023,10 @@ function bindModalActions(): void {
     listen(card, "click", () => {
       const roleName = (card as HTMLElement).dataset.role;
       if (roleName) {
-        showGalleryModal = false;
-        showRoleDetailModal = true;
-        selectedRoleForDetail = roleName;
-        roleDetailReturnTo = "gallery";
+        uiState.showGalleryModal = false;
+        uiState.showRoleDetailModal = true;
+        uiState.selectedRoleForDetail = roleName;
+        uiState.roleDetailReturnTo = "gallery";
         render();
       }
     });
@@ -1097,25 +1053,26 @@ function bindModalActions(): void {
   app!.querySelectorAll<HTMLElement>("[data-quest-detail]").forEach(marker => {
     listen(marker, "click", () => {
       const questIndex = Number(marker.dataset.questDetail);
-      if (!publicState || !getCompletedQuestDetails(publicState, questIndex)) return;
-      selectedQuestForDetail = questIndex;
+      const state = serverState.publicState;
+      if (!state || !getCompletedQuestDetails(state, questIndex)) return;
+      uiState.selectedQuestForDetail = questIndex;
       render();
     });
   });
 }
 
 function emitAck(event: string, payload: Record<string, unknown>, callback: (ack: Ack) => void): void {
-  if (pendingActions.has(event)) {
+  if (networkState.pendingActions.has(event)) {
     return;
   }
 
-  pendingActions.add(event);
+  networkState.pendingActions.add(event);
   disableActionButtons(event);
 
   commands.send(event, payload, result => {
-    pendingActions.delete(event);
+    networkState.pendingActions.delete(event);
     enableActionButtons(event);
-    uncertainNotice = false;
+    networkState.uncertainNotice = false;
     if (result.code === "PROTOCOL_MISMATCH") { window.location.reload(); return; }
     if (result.code === "REQUEST_EXPIRED") syncClock();
     if (result.code === "STALE_PHASE") requestStateSync();
@@ -1144,53 +1101,53 @@ function enableActionButtons(event: string): void {
     if (btn) {
       btn.disabled = false;
       btn.classList.remove("loading");
-      if (action === "mission-fail" && !privateState?.canFailMission) btn.disabled = true;
-      if ((action === "vote-yes" || action === "vote-no") && !privateState?.canVote) btn.disabled = true;
-      if (action === "mission-success" && !privateState?.canMission) btn.disabled = true;
-      if (action === "propose" && (!privateState?.canPropose || pendingTeam.size !== getTeamSizeForDisplay(pendingQuestIndex))) btn.disabled = true;
-      if (action === "assassinate" && (!privateState?.canAssassinate || !pendingAssassinTarget)) btn.disabled = true;
-      if (action === "end-speech" && (publicState?.phase !== "speech" || publicState.timer?.speakerId !== identity?.playerId)) btn.disabled = true;
-      if (action === "start" && publicState) {
-        const me = publicState.players.find(p => p.id === identity?.playerId);
-        btn.disabled = !serverConnected || !me?.isHost || publicState.players.length !== publicState.targetPlayerCount || publicState.players.some(p => !p.connected || (!p.isHost && !p.ready));
+      if (action === "mission-fail" && !serverState.privateState?.canFailMission) btn.disabled = true;
+      if ((action === "vote-yes" || action === "vote-no") && !serverState.privateState?.canVote) btn.disabled = true;
+      if (action === "mission-success" && !serverState.privateState?.canMission) btn.disabled = true;
+      if (action === "propose" && (!serverState.privateState?.canPropose || uiState.pendingTeam.size !== getTeamSizeForDisplay(uiState.pendingQuestIndex))) btn.disabled = true;
+      if (action === "assassinate" && (!serverState.privateState?.canAssassinate || !uiState.pendingAssassinTarget)) btn.disabled = true;
+      if (action === "end-speech" && (serverState.publicState?.phase !== "speech" || serverState.publicState.timer?.speakerId !== serverState.identity?.playerId)) btn.disabled = true;
+      if (action === "start" && serverState.publicState) {
+        const me = serverState.publicState.players.find(p => p.id === serverState.identity?.playerId);
+        btn.disabled = !networkState.serverConnected || !me?.isHost || serverState.publicState.players.length !== serverState.publicState.targetPlayerCount || serverState.publicState.players.some(p => !p.connected || (!p.isHost && !p.ready));
       }
-      if (identity && !sessionReady) btn.disabled = true;
+      if (serverState.identity && !networkState.sessionReady) btn.disabled = true;
     }
   });
 }
 
 function requestStateSync(showErrors = false): void {
-  if (!identity || syncInFlight || !socket.connected) return;
+  if (!serverState.identity || networkState.syncInFlight || !socket.connected) return;
 
-  syncInFlight = true;
-  const generation = ++stateSyncGeneration;
+  networkState.syncInFlight = true;
+  const generation = ++networkState.stateSyncGeneration;
   const payload = authPayload();
   let settled = false;
   const timer = window.setTimeout(() => {
-    if (settled || generation !== stateSyncGeneration) return;
+    if (settled || generation !== networkState.stateSyncGeneration) return;
     settled = true;
-    syncInFlight = false;
+    networkState.syncInFlight = false;
     if (showErrors) showToast("状态同步超时，请检查网络连接。");
     render();
   }, STATE_SYNC_TIMEOUT_MS);
 
   socket.emit("room:sync", payload, (ack: Ack | undefined) => {
-    if (settled || generation !== stateSyncGeneration) return;
+    if (settled || generation !== networkState.stateSyncGeneration) return;
     settled = true;
     window.clearTimeout(timer);
-    syncInFlight = false;
+    networkState.syncInFlight = false;
 
     if (!ack?.ok) {
       const message = ack?.error ?? "状态同步失败，请重试。";
-      if (isSessionInvalid(message)) {
+      if (isSessionInvalid(message, ack?.code)) {
         leaveForced(message);
         return;
       }
       if (showErrors) showToast(message);
       else render();
     } else {
-      const needsRender = !sessionReady;
-      sessionReady = true;
+      const needsRender = !networkState.sessionReady;
+      networkState.sessionReady = true;
       if (needsRender) render();
       commands.resume();
     }
@@ -1198,13 +1155,14 @@ function requestStateSync(showErrors = false): void {
 }
 
 function ensureServerConnected(): boolean {
-  if (serverConnected && socket.connected && (!identity || sessionReady)) return true;
+  if (networkState.serverConnected && socket.connected && (!serverState.identity || networkState.sessionReady)) return true;
   showToast("连接已断开，正在重连...");
   requestStateSync(true);
   return false;
 }
 
-function isSessionInvalid(message: string): boolean {
+function isSessionInvalid(message: string, code?: string): boolean {
+  if (code === "SESSION_INVALID" || code === "ROOM_NOT_FOUND" || code === "PLAYER_NOT_FOUND") return true;
   const text = message.toLowerCase();
   return message.includes("房间不存在") || message.includes("玩家不存在") || message.includes("会话已失效") || message.includes("请求格式不正确") || text.includes("room does not exist") || text.includes("session expired");
 }
@@ -1214,6 +1172,7 @@ function ackToast(ack: Ack): void {
 }
 
 function authPayload(): Record<string, string> {
+  const identity = serverState.identity;
   if (!identity) throw new Error("Not joined");
   return {
     roomCode: identity.roomCode,
@@ -1223,8 +1182,8 @@ function authPayload(): Record<string, string> {
 }
 
 function setIdentity(next: Identity): void {
-  identity = next;
-  sessionReady = true;
+  serverState.identity = next;
+  networkState.sessionReady = true;
   localStorage.setItem(SESSION_KEY, JSON.stringify(next));
   requestStateSync();
   render();
@@ -1240,36 +1199,36 @@ function readSession(): Identity | null {
 }
 
 function clearSession(): void {
-  stateSyncGeneration++;
-  syncInFlight = false;
-  identity = null;
-  pendingTeamDraftKey = "";
-  pendingQuestIndex = 0;
-  lastPublicStateJson = "";
-  lastPrivateStateJson = "";
+  commands.cancel();
+  networkState.pendingActions.clear();
+  networkState.stateSyncGeneration++;
+  networkState.syncInFlight = false;
+  serverState.clear();
+  uiState.pendingTeamDraftKey = "";
+  uiState.pendingQuestIndex = 0;
   localStorage.removeItem(SESSION_KEY);
 }
 
 function reconcilePendingTeam(state: PublicRoomState): void {
   const draftKey = `${state.roomCode}:${state.phaseId}:${state.phase}:${state.questIndex}:${state.leaderId ?? ""}`;
-  const isMyTeamDraft = state.phase === "team" && state.leaderId === identity?.playerId;
+  const isMyTeamDraft = state.phase === "team" && state.leaderId === serverState.identity?.playerId;
 
-  if (!isMyTeamDraft || draftKey !== pendingTeamDraftKey) {
-    pendingTeam = new Set(state.proposal);
-    pendingQuestIndex = state.questIndex;
-    pendingTeamDraftKey = draftKey;
+  if (!isMyTeamDraft || draftKey !== uiState.pendingTeamDraftKey) {
+    uiState.pendingTeam = new Set(state.proposal);
+    uiState.pendingQuestIndex = state.questIndex;
+    uiState.pendingTeamDraftKey = draftKey;
     return;
   }
 
   const validPlayerIds = new Set(state.players.filter((player) => player.connected).map((player) => player.id));
-  pendingTeam = new Set([...pendingTeam].filter((playerId) => validPlayerIds.has(playerId)).slice(0, getTeamSizeForDisplay(pendingQuestIndex)));
+  uiState.pendingTeam = new Set([...uiState.pendingTeam].filter((playerId) => validPlayerIds.has(playerId)).slice(0, getTeamSizeForDisplay(uiState.pendingQuestIndex)));
 }
 
 function showToast(message: string, type: "info" | "success" | "error" = "info"): void {
   document.querySelector(".toast")?.remove();
-  if (toastTimer !== null) {
-    window.clearTimeout(toastTimer);
-    toastTimer = null;
+  if (uiState.toastTimer !== null) {
+    window.clearTimeout(uiState.toastTimer);
+    uiState.toastTimer = null;
   }
 
   const icons = { info: "info", success: "check", error: "alert" };
@@ -1285,15 +1244,15 @@ function showToast(message: string, type: "info" | "success" | "error" = "info")
 
   const closeToast = () => {
     toastElement.remove();
-    if (toastTimer !== null) {
-      window.clearTimeout(toastTimer);
-      toastTimer = null;
+    if (uiState.toastTimer !== null) {
+      window.clearTimeout(uiState.toastTimer);
+      uiState.toastTimer = null;
     }
   };
 
   toastElement.querySelector(".toast-close")?.addEventListener("click", closeToast);
   document.body.appendChild(toastElement);
-  toastTimer = window.setTimeout(closeToast, 6000);
+  uiState.toastTimer = window.setTimeout(closeToast, 6000);
 }
 
 function readInput(selector: string): string {
@@ -1316,7 +1275,7 @@ function readNumberInput(selector: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 function getTeamSizeForDisplay(index: number): number {
-  const state = publicState;
+  const state = serverState.publicState;
   const count = state ? getTargetPlayerCount(state) : 5;
   return getTeamSize(count, index);
 }
@@ -1325,9 +1284,9 @@ function maybeShowGameResult(state: PublicRoomState): void {
   if (state.recovery || state.phase !== "result" || !state.winner) return;
 
   const resultKey = `${state.roomCode}:${state.winner}:${state.winnerReason}`;
-  if (resultKey === lastGameResultKey) return;
+  if (resultKey === uiState.lastGameResultKey) return;
 
-  lastGameResultKey = resultKey;
+  uiState.lastGameResultKey = resultKey;
 
   document.querySelector(".game-result-overlay")?.remove();
   const overlay = document.createElement("div");
@@ -1339,7 +1298,7 @@ function maybeShowGameResult(state: PublicRoomState): void {
       <div class="game-result-ring"></div>
       <div class="game-result-crown">${icon(isGoodWin ? "crown" : "swords", 40)}</div>
       <div class="game-result-title">${FACTION_NAMES[isGoodWin ? "good" : "evil"]}胜利</div>
-      <div class="game-result-subtitle">${escapeHtml(formatWinnerReason(state.winnerReason))}</div>
+      <div class="game-result-subtitle">${escapeHtml(formatWinnerReason(state.winnerReason, state.winnerDetails))}</div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -1349,7 +1308,7 @@ function maybeShowGameResult(state: PublicRoomState): void {
 }
 
 function getShareLinks(): Array<{ label: string; url: string }> {
-  const state = publicState!;
+  const state = serverState.publicState!;
   const roomParam = `?room=${encodeURIComponent(state.roomCode)}`;
   const currentOrigin = window.location.origin || "http://localhost:3000";
   const currentUrl = `${currentOrigin}${roomParam}`;

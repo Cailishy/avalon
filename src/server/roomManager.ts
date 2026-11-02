@@ -4,8 +4,6 @@ import {
   ASSASSINATION_DURATION_MS,
   assertPlayerCount,
   buildRoles,
-  getProposalRejectionThreshold,
-  getRequiredFails,
   getTeamSize,
   isForcedLaunch,
   MISSION_RESULT_DURATION_MS,
@@ -17,12 +15,19 @@ import {
   type PublicRoomState,
   type TimerKind,
   type Winner,
+  type WinnerDetails,
 } from "../shared/game";
+import { GameError } from "../shared/errors";
 import { clearRoomAI, scheduleRoomAI } from "./roomAI";
 import { RoomRecovery } from "./roomRecovery";
-import { roomFromSnapshot, type RoomSnapshot, type SavedTimer } from "./roomSnapshot";
+import { roomFromSnapshot, type RoomSnapshot, type SavedTimer } from "./infrastructure/roomSnapshot";
 import type { PlayerInternal, RoomInternal, RoomTimerInternal } from "./roomTypes";
 import { privatePlayerState, publicRoomState } from "./roomViews";
+import { evaluateMission, evaluateProposalVote, forcedProposalHistory, type ProposalVoteDecision } from "./domain/roomRules";
+import type { JoinResult, RemovedPlayer, SessionSyncResult } from "./domain/roomContracts";
+import { buildSpeechOrder, findNextLeaderIndex, nextOpenQuestIndex, resolveQuestIndex } from "./domain/roomFlow";
+
+export type { JoinResult, RemovedPlayer, SessionSyncResult } from "./domain/roomContracts";
 const VOTE_TIMER_MS = 30_000;
 const MISSION_TIMER_MS = 30_000;
 const SPEECH_TIMER_MS = 60_000;
@@ -30,25 +35,9 @@ const AI_NAMES = ["云", "清", "星", "北", "月", "青", "南", "林", "墨",
   ["舟", "岚", "河", "羽", "溪", "川", "影", "棠", "雪", "歌"].map(suffix => `${prefix}${suffix}`),
 );
 
-export interface JoinResult {
-  roomCode: string;
-  playerId: string;
-  sessionToken: string;
-}
-
 export interface Ack {
   ok: boolean;
   error?: string;
-}
-
-export interface RemovedPlayer {
-  id: string;
-  name: string;
-}
-
-export interface SessionSyncResult {
-  result: JoinResult;
-  connectedChanged: boolean;
 }
 
 export interface RoomTimingOptions {
@@ -64,6 +53,12 @@ export interface RoomLimits {
   codeLength?: number;
 }
 
+type RandomSource = () => number;
+
+function secureRandom(): number {
+  return randomBytes(4).readUInt32BE(0) / 0x1_0000_0000;
+}
+
 export class RoomManager {
   private rooms = new Map<string, RoomInternal>();
   private playerToRoom = new Map<string, string>();
@@ -72,18 +67,23 @@ export class RoomManager {
 
   constructor(
     private readonly localUrls: string[],
-    private readonly onRoomChanged?: (roomCode: string) => void,
+    private onRoomChanged?: (roomCode: string) => void,
     private readonly timing: RoomTimingOptions = {},
     private readonly limits: RoomLimits = {},
+    private readonly random: RandomSource = secureRandom,
   ) {}
 
   assertHealthy(): void {
-    if (this.storageFailed) throw new Error("对局保存不可用，服务已暂停，请联系房主或管理员。");
+    if (this.storageFailed) throw new GameError("STORAGE_UNAVAILABLE", "对局保存不可用，服务已暂停，请联系房主或管理员。");
   }
 
   halt(): void {
     this.storageFailed = true;
     this.close();
+  }
+
+  setRoomChangeListener(listener: ((roomCode: string) => void) | undefined): void {
+    this.onRoomChanged = listener;
   }
 
   roomCodes(): string[] { return [...this.rooms.keys()]; }
@@ -126,6 +126,8 @@ export class RoomManager {
     const player = this.createPlayer(name, true, false, 0);
     const room: RoomInternal = {
       phaseId: `phase_${randomBytes(16).toString("hex")}`,
+      revision: 0,
+      instanceId: randomBytes(16).toString("hex"),
       code,
       hostId: player.id,
       targetPlayerCount: normalizedTargetPlayerCount,
@@ -156,7 +158,7 @@ export class RoomManager {
 
   joinRoom(code: string, name: string): JoinResult {
     const room = this.requireRoom(code);
-    if (room.recovery) throw new Error("房间正在恢复连接，请稍候。");
+    if (room.recovery) throw new GameError("ROOM_RECOVERING", "房间正在恢复连接，请稍候。");
     if (room.phase !== "lobby") throw new Error("游戏已经开始，不能加入。");
     if (room.players.length >= room.targetPlayerCount) throw new Error("房间人数已满。");
     const safeName = this.normalizePlayerName(name, room.players.length);
@@ -254,7 +256,7 @@ export class RoomManager {
       player.connected = false;
       this.trackIdleRoom(room);
       if (room.phase === "assassin" && player.role === "assassin") {
-        this.endGame(room, "good", "刺客已离开房间，放弃刺杀，正方获胜。");
+        this.endGame(room, "good", "刺客已离开房间，放弃刺杀，正方获胜。", { kind: "assassinLeft" });
         return room.code;
       }
       if (room.recovery) {
@@ -286,6 +288,11 @@ export class RoomManager {
 
   getRoom(code: string): RoomInternal | null {
     return this.rooms.get(code.toUpperCase()) ?? null;
+  }
+
+  markChanged(code: string): void {
+    const room = this.getRoom(code);
+    if (room) room.revision += 1;
   }
 
   close(): void {
@@ -335,7 +342,7 @@ export class RoomManager {
     if (room.players.some((player) => !player.connected)) throw new Error("所有玩家在线后才能开始。");
     if (room.players.some((player) => !player.isHost && !player.ready)) throw new Error("所有队员准备后才能开始。");
 
-    const roles = buildRoles(room.players.length);
+    const roles = buildRoles(room.players.length, this.random);
     room.leaderIndex = crypto.randomInt(room.players.length);
     room.players.forEach((player, index) => {
       player.role = roles[index];
@@ -350,6 +357,7 @@ export class RoomManager {
     room.history = [];
     room.winner = null;
     room.winnerReason = "";
+    room.winnerDetails = undefined;
     room.completedAt = null;
     room.phase = "reveal";
     this.startPhaseTimer(room, "reveal", "身份揭晓", this.timing.revealDurationMs ?? ROLE_REVEAL_DURATION_MS);
@@ -406,6 +414,7 @@ export class RoomManager {
     room.history = [];
     room.winner = null;
     room.winnerReason = "";
+    room.winnerDetails = undefined;
     room.completedAt = null;
     room.speechOrder = [];
     room.speechIndex = 0;
@@ -416,7 +425,12 @@ export class RoomManager {
     const room = this.requireAuthedRoom(code, playerId, token);
     if (room.phase !== "team") throw new Error("当前不是组队阶段。");
     if (room.players[room.leaderIndex]?.id !== playerId) throw new Error("只有当前领队可以提交队伍。");
-    const selectedQuestIndex = this.normalizeQuestIndex(room, questIndex);
+    const selectedQuestIndex = resolveQuestIndex({
+      requestedIndex: questIndex,
+      currentIndex: room.questIndex,
+      playerCount: room.players.length,
+      history: room.history,
+    });
     const expectedSize = getTeamSize(room.players.length, selectedQuestIndex);
     const unique = [...new Set(team)];
     if (unique.length !== expectedSize) throw new Error(`本轮需要选择 ${expectedSize} 名队员。`);
@@ -429,8 +443,7 @@ export class RoomManager {
     room.proposal = unique;
     room.votes.clear();
     if (isForcedLaunch(room.rejectCount, room.players.length)) {
-      room.history.push({ type: "vote", quest: room.questIndex + 1, leader: playerId,
-        team: [...room.proposal], approvals: 0, rejections: 0, voteDetails: [], result: "success", forced: true });
+      room.history.push(forcedProposalHistory({ questIndex: room.questIndex, leaderId: playerId, team: room.proposal }));
       this.startMission(room);
       return;
     }
@@ -452,29 +465,23 @@ export class RoomManager {
   }
 
   private resolveVoteIfComplete(room: RoomInternal): void {
-    if (room.votes.size !== room.players.length) return;
-    const approvals = [...room.votes.values()].filter(Boolean).length;
-    const rejections = room.players.length - approvals;
-    const voteDetails = [...room.votes.entries()].map(([playerId, approved]) => ({ playerId, approved }));
     const leaderId = room.players[room.leaderIndex]?.id;
+    const decision = evaluateProposalVote({
+      playerCount: room.players.length,
+      questIndex: room.questIndex,
+      leaderId,
+      team: room.proposal,
+      votes: room.votes,
+    });
+    if (!decision) return;
 
-    if (rejections < getProposalRejectionThreshold(room.players.length)) {
-      // 投票通过，记录到历史
-      room.history.push({
-        type: "vote",
-        quest: room.questIndex + 1,
-        leader: leaderId,
-        team: [...room.proposal],
-        approvals,
-        rejections,
-        voteDetails,
-        result: "success",
-      });
+    if (decision.accepted) {
+      room.history.push(decision.history);
       this.startMission(room);
       return;
     }
 
-    this.rejectProposal(room);
+    this.rejectProposal(room, decision);
   }
 
   private startMission(room: RoomInternal): void {
@@ -484,22 +491,8 @@ export class RoomManager {
     this.resolveOfflinePlayerActions(room);
   }
 
-  private rejectProposal(room: RoomInternal): void {
-    const approvals = [...room.votes.values()].filter(Boolean).length;
-    const rejections = room.players.length - approvals;
-    const voteDetails = [...room.votes.entries()].map(([playerId, approved]) => ({ playerId, approved }));
-    const leaderId = room.players[room.leaderIndex]?.id;
-
-    room.history.push({
-      type: "vote",
-      quest: room.questIndex + 1,
-      leader: leaderId,
-      team: [...room.proposal],
-      approvals,
-      rejections,
-      voteDetails,
-      result: "fail",
-    });
+  private rejectProposal(room: RoomInternal, decision: ProposalVoteDecision): void {
+    room.history.push(decision.history);
     room.rejectCount += 1;
     room.proposal = [];
     room.votes.clear();
@@ -523,22 +516,19 @@ export class RoomManager {
   }
 
   private resolveMissionIfComplete(room: RoomInternal): void {
-    if (room.missionVotes.size !== room.proposal.length) return;
     const leaderId = room.players[room.leaderIndex]?.id;
-    const fails = [...room.missionVotes.values()].filter(Boolean).length;
-    const requiredFails = getRequiredFails(room.players.length, room.questIndex);
-    const questFailed = fails >= requiredFails;
-    if (questFailed) room.score.fail += 1;
-    else room.score.success += 1;
-
-    room.history.push({
-      type: "mission",
-      quest: room.questIndex + 1,
-      leader: leaderId,
-      team: [...room.proposal],
-      fails,
-      result: questFailed ? "fail" : "success",
+    const decision = evaluateMission({
+      playerCount: room.players.length,
+      questIndex: room.questIndex,
+      leaderId,
+      team: room.proposal,
+      missionVotes: room.missionVotes,
     });
+    if (!decision) return;
+
+    if (decision.questFailed) room.score.fail += 1;
+    else room.score.success += 1;
+    room.history.push(decision.history);
 
     room.proposal = [];
     room.votes.clear();
@@ -558,9 +548,9 @@ export class RoomManager {
     if (targetId === playerId) throw new Error("刺客不能选择自己。");
     if (target.role && ROLE_DEFS[target.role].side === "evil") throw new Error("不能刺杀已亮明身份的藏锋者。");
     if (target.role === "merlin") {
-      this.endGame(room, "evil", `刺客命中 ${target.name}，梅林阵亡。`);
+      this.endGame(room, "evil", `刺客命中 ${target.name}，梅林阵亡。`, { kind: "assassinHit", targetPlayerId: target.id });
     } else {
-      this.endGame(room, "good", `刺客选择了 ${target.name}，梅林安全。`);
+      this.endGame(room, "good", `刺客选择了 ${target.name}，梅林安全。`, { kind: "assassinMiss", targetPlayerId: target.id });
     }
   }
 
@@ -615,13 +605,13 @@ export class RoomManager {
   private requireRoom(code: string): RoomInternal {
     this.assertHealthy();
     const room = this.rooms.get(code.toUpperCase());
-    if (!room) throw new Error("房间不存在。");
+    if (!room) throw new GameError("ROOM_NOT_FOUND", "房间不存在。");
     return room;
   }
 
   private requirePlayer(room: RoomInternal, playerId: string): PlayerInternal {
     const player = room.players.find((candidate) => candidate.id === playerId);
-    if (!player) throw new Error("玩家不存在。");
+    if (!player) throw new GameError("PLAYER_NOT_FOUND", "玩家不存在。");
     return player;
   }
 
@@ -629,16 +619,16 @@ export class RoomManager {
     const room = this.requireRoom(code);
     const player = this.requirePlayer(room, playerId);
     this.assertToken(player, token);
-    if (room.recovery && !allowRecovery) throw new Error("对局正在恢复连接，请稍候。");
+    if (room.recovery && !allowRecovery) throw new GameError("ROOM_RECOVERING", "对局正在恢复连接，请稍候。");
     return room;
   }
 
   private assertToken(player: PlayerInternal, token: string): void {
-    if (player.sessionToken !== token) throw new Error("会话已失效，请重新加入。");
+    if (player.sessionToken !== token) throw new GameError("SESSION_INVALID", "会话已失效，请重新加入。");
   }
 
   private assertHost(room: RoomInternal, playerId: string): void {
-    if (room.hostId !== playerId) throw new Error("只有房主可以执行此操作。");
+    if (room.hostId !== playerId) throw new GameError("NOT_AUTHORIZED", "只有房主可以执行此操作。");
   }
 
   private normalizePlayerCount(count: number): number {
@@ -659,12 +649,13 @@ export class RoomManager {
     }
   }
 
-  private endGame(room: RoomInternal, winner: Winner, reason: string): void {
+  private endGame(room: RoomInternal, winner: Winner, reason: string, details: WinnerDetails): void {
     this.recovery.cancel(room);
     this.clearTimer(room);
     this.clearAISimulation(room);
     room.winner = winner;
     room.winnerReason = reason;
+    room.winnerDetails = details;
     room.phase = "result";
     room.phaseId = `phase_${randomBytes(16).toString("hex")}`;
     room.completedAt = Date.now();
@@ -718,13 +709,13 @@ export class RoomManager {
     }
     if (kind === "missionResult" && room.phase === "missionResult") {
       if (room.score.fail >= 3) {
-        this.endGame(room, "evil", "三个任务失败，反方获胜。");
+        this.endGame(room, "evil", "三个任务失败，反方获胜。", { kind: "missionFailure" });
       } else if (room.score.success >= 3) {
         this.clearAISimulation(room);
         room.phase = "assassin";
         this.startPhaseTimer(room, "assassin", "藏锋者讨论与刺杀", ASSASSINATION_DURATION_MS);
       } else {
-        this.startSpeechPhase(room, this.findNextLeaderIndex(room));
+        this.startSpeechPhase(room, findNextLeaderIndex(room.players, room.leaderIndex));
       }
       this.notifyRoomChanged(room.code);
       return;
@@ -763,32 +754,16 @@ export class RoomManager {
         const target = targets[crypto.randomInt(targets.length)];
         this.chooseAssassinTarget(code, assassin.id, assassin.sessionToken, target.id);
       } else {
-        this.endGame(room, "good", "刺客未在规定时间内选择目标，正方获胜。");
+        this.endGame(room, "good", "刺客未在规定时间内选择目标，正方获胜。", { kind: "assassinTimeout" });
       }
       this.notifyRoomChanged(room.code);
     }
   }
 
-  private findNextLeaderIndex(room: RoomInternal, fromIndex = room.leaderIndex): number {
-    const hasConnectedPlayers = room.players.some((player) => player.connected);
-    for (let offset = 1; offset <= room.players.length; offset += 1) {
-      const nextIndex = (fromIndex + offset) % room.players.length;
-      if (!hasConnectedPlayers || room.players[nextIndex]?.connected) {
-        return nextIndex;
-      }
-    }
-    return fromIndex;
-  }
-
   private startSpeechPhase(room: RoomInternal, nextLeaderIndex: number): void {
     this.clearAISimulation(room);
     room.leaderIndex = nextLeaderIndex;
-    room.speechOrder = [];
-    for (let offset = 1; offset <= room.players.length; offset += 1) {
-      const index = (nextLeaderIndex + offset) % room.players.length;
-      const player = room.players[index];
-      if (player?.connected) room.speechOrder.push(player.id);
-    }
+    room.speechOrder = buildSpeechOrder(room.players, nextLeaderIndex);
 
     room.speechIndex = 0;
     room.speechNextLeaderIndex = nextLeaderIndex;
@@ -833,12 +808,12 @@ export class RoomManager {
     this.clearAISimulation(room);
     if (room.speechNextLeaderIndex !== null) {
       const nextLeader = room.players[room.speechNextLeaderIndex];
-      room.leaderIndex = nextLeader?.connected ? room.speechNextLeaderIndex : this.findNextLeaderIndex(room, room.speechNextLeaderIndex);
+      room.leaderIndex = nextLeader?.connected ? room.speechNextLeaderIndex : findNextLeaderIndex(room.players, room.speechNextLeaderIndex);
     }
     room.speechOrder = [];
     room.speechIndex = 0;
     room.speechNextLeaderIndex = null;
-    if (room.history.at(-1)?.type === "mission") room.questIndex = this.nextOpenQuestIndex(room);
+    if (room.history.at(-1)?.type === "mission") room.questIndex = nextOpenQuestIndex(room.history, room.questIndex);
     this.startTeamPhase(room);
   }
 
@@ -890,26 +865,8 @@ export class RoomManager {
     }
   }
 
-  private normalizeQuestIndex(room: RoomInternal, questIndex?: number): number {
-    if (questIndex !== undefined && !Number.isInteger(questIndex)) throw new Error("任务序号无效。");
-    const normalized = questIndex ?? room.questIndex;
-    if (normalized < 0 || normalized > 4) throw new Error("任务序号无效。");
-    if (room.history.some((entry) => entry.type === "mission" && entry.quest === normalized + 1)) {
-      throw new Error("该任务已经完成。");
-    }
-    getTeamSize(room.players.length, normalized);
-    return normalized;
-  }
-
-  private nextOpenQuestIndex(room: RoomInternal): number {
-    const completed = new Set(room.history.filter((entry) => entry.type === "mission").map((entry) => entry.quest - 1));
-    for (let index = 0; index < 5; index += 1) {
-      if (!completed.has(index)) return index;
-    }
-    return Math.min(room.questIndex, 4);
-  }
-
   private notifyRoomChanged(code: string): void {
+    this.markChanged(code);
     try { this.onRoomChanged?.(code); }
     catch (error) { if (!this.storageFailed) throw error; }
     this.simulateAI(code);

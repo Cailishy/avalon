@@ -13,13 +13,15 @@ async function enter(browser: Browser, game: TestGame, count: number, beforeNavi
     // These multi-client flows exercise game state; audio has dedicated coverage.
     const quiet: Partial<AudioPreferences> = { music: false, narration: false, effects: false };
     await context.addInitScript(preferences => localStorage.setItem("awalong-audio", JSON.stringify(preferences)), quiet);
-    if (index === count - 1) await context.addInitScript(() => { const now = Date.now.bind(Date); Date.now = () => now() + 8 * 3600000; });
+    // Keep wall-clock skew in the dedicated resilience scenario below so the
+    // standard multi-client flow measures game behavior rather than browser load.
+    if (index === count - 1 && beforeNavigation) await context.addInitScript(() => { const now = Date.now.bind(Date); Date.now = () => now() + 8 * 3600000; });
     const response = await context.request.post(`${game.url}/api/access`, { data: { code: game.passcode } });
     expect(response.status()).toBe(200);
+    const name = `Test${String.fromCharCode(65 + index)}`;
     const page = await context.newPage();
     await beforeNavigation?.(page, index);
     await page.goto(game.url);
-    const name = `Test${String.fromCharCode(65 + index)}`;
     if (index === 0) {
       await page.getByRole("textbox", { name: "你的名字", exact: true }).fill(name);
       await page.getByRole("combobox", { name: "本局人数", exact: true }).selectOption(String(count));
@@ -52,13 +54,45 @@ async function enter(browser: Browser, game: TestGame, count: number, beforeNavi
 async function phase(players: Player[], value: string) {
   await Promise.all(players.map(player => expect(player.page.locator(".game-container")).toHaveAttribute("data-phase", value, { timeout: 20000 })));
 }
+async function probeAction(player: Player, action: string, requireEnabled = false): Promise<boolean> {
+  return player.page.evaluate(({ actionName, mustBeEnabled }) => {
+    const element = document.querySelector<HTMLElement>(`[data-action="${actionName}"]`);
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && !element.hasAttribute("hidden") && !(mustBeEnabled && element instanceof HTMLButtonElement && element.disabled);
+  }, { actionName: action, mustBeEnabled: requireEnabled }).catch(() => false);
+}
 async function actor(players: Player[], action: string): Promise<Player> {
   let found: Player | undefined;
   await expect.poll(async () => {
-    for (const player of players) if (await player.page.locator(`[data-action="${action}"]`).isVisible()) { found = player; return true; }
-    return false;
-  }).toBe(true);
+    const ready = await Promise.all(players.map(async player => ({ player, ready: await probeAction(player, action, action === "end-speech") })));
+    found = ready.find(item => item.ready)?.player;
+    return !!found;
+  }, { timeout: action === "end-speech" ? 45_000 : 15_000 }).toBe(true);
   return found!;
+}
+async function nextSpeechActor(players: Player[]): Promise<Player | null> {
+  let found: Player | undefined;
+  let finished = false;
+  await expect.poll(async () => {
+    const states = await Promise.all(players.map(async player => ({
+      player,
+      state: await player.page.evaluate(() => {
+        const container = document.querySelector<HTMLElement>(".game-container");
+        const control = document.querySelector<HTMLElement>('[data-action="end-speech"]');
+        if (!control) return { phase: container?.dataset.phase ?? null, ready: false };
+        const style = window.getComputedStyle(control);
+        return {
+          phase: container?.dataset.phase ?? null,
+          ready: style.display !== "none" && style.visibility !== "hidden" && !control.hasAttribute("hidden") && !(control instanceof HTMLButtonElement && control.disabled),
+        };
+      }).catch(() => ({ phase: null, ready: false })),
+    })));
+    if (states.some(item => item.state.phase && item.state.phase !== "speech")) { finished = true; return true; }
+    found = states.find(item => item.state.ready)?.player;
+    return !!found;
+  }, { timeout: 45_000 }).toBe(true);
+  return finished ? null : found ?? null;
 }
 async function propose(players: Player[], quest: number, candidates: Player[]) {
   const leader = await actor(players, "propose");
@@ -73,8 +107,9 @@ async function propose(players: Player[], quest: number, candidates: Player[]) {
 }
 async function endSpeeches(players: Player[]) {
   await phase(players, "speech");
-  for (let index = 0; index < players.length; index++) {
-    const speaker = await actor(players, "end-speech");
+  while (true) {
+    const speaker = await nextSpeechActor(players);
+    if (!speaker) break;
     await speaker.page.locator('[data-action="end-speech"]').click();
   }
   await phase(players, "team");
@@ -127,13 +162,21 @@ for (const count of [5, 6, 7, 8, 9, 10]) {
 test("weak network, lost acknowledgement, node retention, clock skew and process recovery", async ({ browser, game }, info) => {
   const attempts: string[] = [];
   const upgraded = new Set<string>();
+  const offline = new Set<string>();
+  const disconnect = new Map<string, () => Promise<void>>();
   let voterName = "";
   let dropAck: string | null = null;
   const players = await enter(browser, game, 5, async (page, index) => {
     const name = `Test${String.fromCharCode(65 + index)}`;
-    await page.routeWebSocket("**/socket.io/**", route => {
+    await page.routeWebSocket("**/socket.io/**", async route => {
       upgraded.delete(name);
+      if (offline.has(name)) { await route.close(); return; }
       const server = route.connectToServer();
+      disconnect.set(name, async () => {
+        // Browser offline emulation does not close the proxy's upstream socket.
+        await server.close();
+        await route.close();
+      });
       route.onMessage(message => {
         if (message === "5") upgraded.add(name);
         if (name === voterName && typeof message === "string") {
@@ -158,7 +201,10 @@ test("weak network, lost acknowledgement, node retention, clock skew and process
     await select.click(); await select.focus();
     const seat = await select.elementHandle();
     const table = await leader.page.locator(".table-surface").elementHandle();
+    await expect.poll(() => upgraded.has(other.name)).toBe(true);
+    offline.add(other.name);
     await other.context.setOffline(true);
+    await disconnect.get(other.name)!();
     await expect(leader.page.locator(`.player-card[data-player-id="${other.id}"]`)).toHaveClass(/offline/);
     expect(await seat!.evaluate(node => node.isConnected)).toBe(true);
     expect(await table!.evaluate(node => node.isConnected)).toBe(true);
@@ -168,6 +214,7 @@ test("weak network, lost acknowledgement, node retention, clock skew and process
     await leader.page.locator("#rulePlayerCount").focus();
     await leader.page.locator(".modal-body").evaluate(node => { node.scrollTop = 150; });
     expect(await leader.page.locator(".modal-body").evaluate(node => node.scrollTop)).toBe(150);
+    offline.delete(other.name);
     await other.context.setOffline(false);
     await expect(leader.page.locator(`.player-card[data-player-id="${other.id}"]`)).not.toHaveClass(/offline/);
     expect(await dialog!.evaluate(node => node.isConnected)).toBe(true);
