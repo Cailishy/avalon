@@ -465,6 +465,30 @@ describe("RoomManager", () => {
     expect(state.players.map((player) => player.position)).toEqual([0, 1]);
   });
 
+  it("skips AI seats when transferring the lobby host", () => {
+    const manager = new RoomManager(["http://localhost:3000"]);
+    const host = manager.createRoom("Host", 5);
+    manager.addAIPlayers(host.roomCode, host.playerId, host.sessionToken, 1);
+    const human = manager.joinRoom(host.roomCode, "P3");
+
+    manager.leaveRoom(host.roomCode, host.playerId, host.sessionToken);
+
+    const state = manager.getPublicState(host.roomCode);
+    expect(state.hostId).toBe(human.playerId);
+    expect(state.players.filter((player) => player.isHost).map((player) => player.id)).toEqual([human.playerId]);
+    manager.close();
+  });
+
+  it("closes a lobby once only AI players remain", () => {
+    const manager = new RoomManager(["http://localhost:3000"]);
+    const host = manager.createRoom("Host", 5);
+    manager.addAIPlayers(host.roomCode, host.playerId, host.sessionToken, 4);
+
+    expect(manager.leaveRoom(host.roomCode, host.playerId, host.sessionToken)).toBeNull();
+    expect(manager.getRoom(host.roomCode)).toBeNull();
+    expect(() => manager.joinRoom(host.roomCode, "Late")).toThrow("房间不存在");
+  });
+
   it("returns removed player information when kicking a lobby player", () => {
     const manager = new RoomManager(["http://localhost:3000"]);
     const host = manager.createRoom("Host", 5);
@@ -1030,6 +1054,27 @@ describe("RoomManager", () => {
     expect(room.players.map((player: any) => player.id)).toEqual(originalOrder);
     expect(manager.getPublicState(host.roomCode).phase).toBe("vote");
     expect(changes).toContain(host.roomCode);
+  });
+
+  it("drives AI choices from the injected random source", () => {
+    const mathRandom = vi.spyOn(Math, "random");
+    const manager = new ProductionRoomManager(["http://localhost:3000"], undefined, {}, {}, () => 0);
+    const host = manager.createRoom("Host");
+    manager.addAIPlayers(host.roomCode, host.playerId, host.sessionToken, 4);
+    manager.startRoom(host.roomCode, host.playerId, host.sessionToken);
+    manager.getRoom(host.roomCode)!.leaderIndex = 0;
+    vi.advanceTimersByTime(ROLE_REVEAL_DURATION_MS);
+
+    const room = manager.getRoom(host.roomCode)!;
+    manager.proposeTeam(host.roomCode, host.playerId, host.sessionToken, room.players.slice(0, 2).map(player => player.id));
+    manager.simulateAI(host.roomCode);
+    vi.advanceTimersByTime(1500);
+
+    const decision = manager.getPublicState(host.roomCode).history.at(-1)!;
+    expect(decision.voteDetails!.filter(vote => vote.playerId !== host.playerId).every(vote => !vote.approved)).toBe(true);
+    expect(mathRandom).not.toHaveBeenCalled();
+    mathRandom.mockRestore();
+    manager.close();
   });
 
   it("does not treat human players named AI as bots", () => {

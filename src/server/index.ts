@@ -59,6 +59,8 @@ app.set("query parser", "simple");
 app.use(helmet({
   contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], scriptSrc: isDev ? ["'self'", "'unsafe-eval'"] : ["'self'"],
+    // Vite's dev client pings for server restarts from a blob SharedWorker.
+    ...(isDev ? { workerSrc: ["'self'", "blob:"] } : {}),
     styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:"], mediaSrc: ["'self'", "blob:"],
     connectSrc: ["'self'", ...(config.publicMode ? [config.origin!.replace(/^https/, "wss")] : ["ws:", "wss:"]), ...(config.voice ? [config.voice.url, config.voice.url.replace(/^ws/, "http")] : [])],
     objectSrc: ["'none'"], frameAncestors: ["'none'"], formAction: ["'self'"],
@@ -111,7 +113,7 @@ async function configureApp(): Promise<void> {
     app.use("*", access.protectPages(renderAccess, true), async (req, res, next) => {
       try {
         const url = req.originalUrl;
-        const html = await vite.transformIndexHtml(url, await import("node:fs/promises").then((fs) => fs.readFile(path.join(root, "index.html"), "utf8")));
+        const html = await vite.transformIndexHtml(url, await readFile(path.join(root, "index.html"), "utf8"));
         res.status(200).set({ "Content-Type": "text/html" }).end(html);
       } catch (error) {
         vite.ssrFixStacktrace(error as Error);
