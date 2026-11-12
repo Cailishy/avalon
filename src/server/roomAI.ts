@@ -1,7 +1,8 @@
-import { ROLE_DEFS, getTeamSize } from "../shared/game";
+import { ROLE_DEFS, getTeamSize, shuffle } from "../shared/game";
 import type { RoomInternal } from "./roomTypes";
 
 export interface RoomAIActions {
+  random: () => number;
   getRoom: (code: string) => RoomInternal | null;
   proposeTeam: (code: string, playerId: string, token: string, team: string[]) => void;
   submitVote: (code: string, playerId: string, token: string, approved: boolean) => void;
@@ -47,9 +48,7 @@ export function scheduleRoomAI(code: string, actions: RoomAIActions): void {
           const leader = currentRoom.players[currentRoom.leaderIndex];
           if (leader?.isAI && leader.connected) {
             const teamSize = getTeamSize(currentRoom.players.length, currentRoom.questIndex);
-            const team = [...currentRoom.players]
-              .filter(p => p.connected)
-              .sort(() => Math.random() - 0.5)
+            const team = shuffle(currentRoom.players.filter(p => p.connected), actions.random)
               .slice(0, teamSize)
               .map(p => p.id);
             if (team.length === teamSize) {
@@ -61,7 +60,7 @@ export function scheduleRoomAI(code: string, actions: RoomAIActions): void {
           for (const ai of aiPlayers) {
             if (currentRoom.phase !== "vote") break;
             if (ai.connected && currentRoom.players[currentRoom.leaderIndex]?.id !== ai.id && !currentRoom.votes.has(ai.id)) {
-              const vote = Math.random() > 0.3;
+              const vote = actions.random() > 0.3;
               actions.submitVote(code, ai.id, ai.sessionToken, vote);
               changed = true;
             }
@@ -71,7 +70,7 @@ export function scheduleRoomAI(code: string, actions: RoomAIActions): void {
             if (currentRoom.phase !== "mission") break;
             if (ai.connected && currentRoom.proposal.includes(ai.id) && !currentRoom.missionVotes.has(ai.id)) {
               const isEvil = Boolean(ai.role && ROLE_DEFS[ai.role].side === "evil");
-              const fail = isEvil && Math.random() > 0.5;
+              const fail = isEvil && actions.random() > 0.5;
               actions.submitMission(code, ai.id, ai.sessionToken, fail);
               changed = true;
             }

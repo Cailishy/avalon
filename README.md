@@ -11,7 +11,7 @@ Avalon（阿瓦隆）是一个在浏览器里玩的 5–10 人社交推理游戏
 ![5–10 人](https://img.shields.io/badge/Players-5--10-B79C5F?style=flat-square)
 [![代码许可 MIT](https://img.shields.io/badge/Code_License-MIT-527C87?style=flat-square)](LICENSE)
 
-[🚀 快速开始](#快速开始) · [🖼️ 游戏展示](#游戏展示) · [🎭 角色典藏馆](#角色典藏馆) · [📖 游戏规则](docs/user-guide/rules.md) · [🌐 部署指南](docs/deployment/README.md)
+[🚀 快速开始](#快速开始) · [🖼️ 游戏展示](#游戏展示) · [🎬 宣传片](#游戏展示) · [🎭 角色典藏馆](#角色典藏馆) · [📖 游戏规则](docs/user-guide/rules.md) · [🌐 部署指南](docs/deployment/README.md)
 
 ![圆桌对局实机画面：左侧身份配置，中间任务进度、圆桌与队长选人，右侧公开对局记录](docs/images/game.jpg)
 
@@ -68,13 +68,21 @@ npm run dev
 
 从入席到任务结算，页面会跟着对局推进。投票、倒计时和结果由服务器校验，不靠反复刷新整页来同步。
 
-| 🏰 创建与加入 | 👥 等大家准备好 |
-| --- | --- |
-| [![游戏入口：输入名字并选择人数](docs/images/entry.jpg)](docs/images/entry.jpg) | [![五人房间：圆桌座位、准备状态和开始游戏](docs/images/lobby.jpg)](docs/images/lobby.jpg) |
+🎬 想先看一局怎么玩？下面是 64 秒宣传演示片，从开房、组队、表决、任务到最后的刺杀，画面全部来自真实对局录屏，制作说明见[视频说明](docs/video/README.md)。
 
-| 🛡️ 任务结果 | 📜 回看这一车 |
+https://github.com/user-attachments/assets/62acc19a-a6ab-4914-9317-d428deadc33f
+
+| 🎬 宣传演示片 | 🏰 创建与加入 |
 | --- | --- |
-| [![任务成功：任务牌与当前比分](docs/images/mission-result.jpg)](docs/images/mission-result.jpg) | [![任务详情：队长、队员、公开表决和匿名任务牌汇总](docs/images/quest-details.jpg)](docs/images/quest-details.jpg) |
+| [![宣传演示片封面：圆桌上的阿瓦隆标题与播放按钮，点击观看视频](docs/images/promo-poster.jpg)](docs/video/avalon-promo.mp4) | [![游戏入口：输入名字并选择人数](docs/images/entry.jpg)](docs/images/entry.jpg) |
+
+| 👥 等大家准备好 | 🛡️ 任务结果 |
+| --- | --- |
+| [![五人房间：圆桌座位、准备状态和开始游戏](docs/images/lobby.jpg)](docs/images/lobby.jpg) | [![任务成功：任务牌与当前比分](docs/images/mission-result.jpg)](docs/images/mission-result.jpg) |
+
+| 📜 回看这一车 | 🗡️ 最后一刀 |
+| --- | --- |
+| [![任务详情：队长、队员、公开表决和匿名任务牌汇总](docs/images/quest-details.jpg)](docs/images/quest-details.jpg) | [![刺杀阶段：刺客在圆桌上选中刺杀目标，藏锋者同伴公开在密议区](docs/images/assassination.jpg)](docs/images/assassination.jpg) |
 
 ### 📱 手机也能入席
 

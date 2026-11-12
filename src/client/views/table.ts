@@ -45,6 +45,39 @@ export function renderProposalOutcome(state: PublicRoomState): string {
   </section>`;
 }
 
+export type SeatVoteToken = "sealed" | "approve" | "reject";
+
+/** Face-down while the table votes; turned over during the mission that the vote approved. */
+export function seatVoteToken(state: PublicRoomState, playerId: string): SeatVoteToken | null {
+  if (state.phase === "vote") return state.voteSubmitted.includes(playerId) ? "sealed" : null;
+  const latest = state.history.at(-1);
+  if (state.phase !== "mission" || latest?.type !== "vote" || latest.forced) return null;
+  const vote = latest.voteDetails?.find(detail => detail.playerId === playerId);
+  return vote ? vote.approved ? "approve" : "reject" : null;
+}
+
+/** Mission cards laid face-down in the middle of the table as team members act. */
+export function missionCardSlots(state: PublicRoomState): { placed: number; total: number } | null {
+  if (state.phase !== "mission" || !state.proposal.length) return null;
+  return { placed: Math.min(state.missionSubmitted.length, state.proposal.length), total: state.proposal.length };
+}
+
+function renderVoteToken(token: SeatVoteToken | null, playerId: string): string {
+  if (!token) return "";
+  const label = token === "sealed" ? "已投票" : token === "approve" ? "赞成" : "反对";
+  const glyph = token === "sealed" ? "" : icon(token === "approve" ? "check" : "close", 13);
+  return `<span class="vote-token ${token}" data-render-key="token:${playerId}:${token === "sealed" ? "sealed" : "open"}" role="img" aria-label="${label}">${glyph}</span>`;
+}
+
+function renderMissionCards(state: PublicRoomState): string {
+  const slots = missionCardSlots(state);
+  if (!slots) return "";
+  return `<div class="table-cards" role="img" aria-label="已扣下 ${slots.placed} / ${slots.total} 张任务牌">${Array.from({ length: slots.total }, (_, index) => {
+    const placed = index < slots.placed;
+    return `<span class="table-card ${placed ? "placed" : ""}" data-render-key="table-card:${index}:${placed ? "placed" : "open"}"></span>`;
+  }).join("")}</div>`;
+}
+
 export function renderRoundTable(context: GameViewContext, myId: string): string {
   const { publicState, privateState, pendingTeam, pendingQuestIndex, pendingAssassinTarget } = context;
   const state = publicState!;
@@ -74,16 +107,17 @@ export function renderRoundTable(context: GameViewContext, myId: string): string
     const status = !player.connected ? "离线" : revealed ? formatRoleName(revealed.roleName) : (isSpeaking ? "发言中" :
       state.phase === "lobby" ? (player.isHost ? "房主" : isReady ? "已准备" : "未准备") :
       state.phase === "mission" && state.missionSubmitted.includes(player.id) ? "已行动" :
-      state.phase === "vote" && state.voteSubmitted.includes(player.id) ? "已投票" : isSelected ? "任务队员" : isLeader ? "队长" : "在场");
+      state.phase === "vote" && state.voteSubmitted.includes(player.id) ? "已投票" : isSelected ? (state.phase === "assassin" ? "刺杀目标" : "任务队员") : isLeader ? "队长" : "在场");
     return `
       <div class="player-seat" data-render-key="seat:${player.id}" data-player-id="${player.id}">
         <div class="player-card ${sideClass} ${player.id === myId ? "is-self" : ""} ${isLeader ? "leader" : ""} ${isSpeaking ? "speaking" : ""} ${isSelected ? "selected" : ""} ${isReady ? "ready" : ""} ${!player.connected ? "offline" : ""}"
              data-player-id="${player.id}" ${canSelect ? `role="button" tabindex="0" aria-pressed="${isSelected}"` : ""} title="${escapeHtml(player.name)} · ${escapeHtml(status)}">
           <div class="seat-heading">${player.id === myId ? '<span class="seat-self">你</span>' : ""}${isLeader ? `<span class="seat-crown" title="${state.phase === "speech" ? "下一位队长" : "本轮队长"}">${icon("crown", 15)}</span>` : player.isHost && state.phase !== "lobby" ? '<span class="seat-host">房主</span>' : ""}</div>
-          <div class="player-avatar">${seatPortraitMarkup(player.position, "avatar-art")}${isSelected ? `<span class="seat-selected">${icon(state.phase === "assassin" ? "target" : "check", 13)}</span>` : ""}</div>
+          <div class="player-avatar">${seatPortraitMarkup(player.position, "avatar-art")}${isSelected && state.phase === "assassin" ? `<span class="seat-reticle">${icon("crosshair", 64)}</span>` : isSelected ? `<span class="seat-selected">${icon("check", 13)}</span>` : ""}${isSpeaking ? `<span class="seat-speaking">${icon("mic", 12)}</span>` : ""}</div>
           <div class="player-name">${escapeHtml(player.name)}</div>
           <div class="player-status">${escapeHtml(status)}</div>
         </div>
+        ${renderVoteToken(seatVoteToken(state, player.id), player.id)}
       </div>
     `;
   }).join("");
@@ -94,6 +128,7 @@ export function renderRoundTable(context: GameViewContext, myId: string): string
         <div class="table-center">
           <div class="table-phase">${state.recovery ? "等待重连" : phases[state.phase]}</div>
           <div class="table-detail">${tableDetail}</div>
+          ${renderMissionCards(state)}
           <div class="score">
             <div class="good" title="成功任务">成 <strong>${state.score.success}</strong></div>
             <div class="evil" title="失败任务">败 <strong>${state.score.fail}</strong></div>

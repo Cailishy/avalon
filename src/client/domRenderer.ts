@@ -21,6 +21,8 @@ export function patchHtml(root: HTMLElement, html: string): void {
       if (from.matches(".player-seat")) {
         to.style.left = from.style.left;
         to.style.top = from.style.top;
+        to.style.setProperty("--token-x", from.style.getPropertyValue("--token-x"));
+        to.style.setProperty("--token-y", from.style.getPropertyValue("--token-y"));
       } else if (from.matches(".table-surface")) {
         to.style.minWidth = from.style.minWidth;
         if (from.dataset.layout) to.dataset.layout = from.dataset.layout;

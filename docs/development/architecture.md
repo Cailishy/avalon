@@ -105,7 +105,9 @@ flowchart LR
 - `src/client/serverClock.ts`：基于 RTT 样本和单调时钟估算服务器时间；不修改服务器计时器。
 - `src/client/domRenderer.ts`：morphdom 节点差异更新、稳定键和每轮监听清理，不包含玩法逻辑。
 - `src/client/dialogMotion.ts`：按展示弹窗标题跟踪入场时间；新打开与切换内容播放动画，同标题重绘不重播，关闭后重开重新播放。不参与任何服务端阶段推进。
-- `src/client/table-theme.css`：当前启用的圆桌主题、全部页面及弹窗样式、响应式布局和结果动画。`styles.css` 为此前主题，当前入口不再加载。
+- `src/client/table-theme.css`：当前启用的烛火议事厅主题，与入口页统一为暖色石墙背景、双描金边面板、完整圆桌底图、徽章式座位、金币式任务进度和金色主按钮；包含全部页面及弹窗样式、响应式布局和关键时刻动效。桌面端圆桌按视口尺寸缩放，最大 620px，并保证操作区留在屏幕内；身份栏不撑高圆桌所在行。`styles.css` 为此前主题，当前入口不再加载。
+  - 关键时刻：投票阶段以背面朝上的硬币表示已投，揭晓时同时翻面；任务牌摆放在桌面上；刺杀阶段压暗圆桌，并在候选座位显示准星，刺客选定的座位标为「刺杀目标」而非任务队员；当前发言人有象牙色光晕；结算卡带胜方横幅。动效只读取公开状态，不决定阶段，遵循 `prefers-reduced-motion`。
+  - 字体：通过 `@fontsource/noto-serif-sc`（OFL-1.1）把 Noto Serif SC 按 unicode-range 切片为同源 woff2 打包。CSP 不允许 `font-src data:`，`vite.config.ts` 因此对字体禁用资源内联，并用 PostCSS 插件 `dropWoffFallbacks` 去掉 woff 兜底，只保留 woff2。
 - `src/client/portraits.ts`：人物图集坐标及角色/公共座位映射；公共座位映射只依赖 `position`。
 - `src/client/roleLabels.ts`：角色展示统一加『』；完整角色名优先匹配且重复格式化不重复加标签。优先消费 `knowledgeInfo` / `winnerDetails` 结构化字段，旧 `knowledge` / `winnerReason` 仅作为兼容展示文本；模板仍统一转义 HTML。共享名称、卡片导航标识、权限和语音数据保持原值。
 - `src/client/audio.ts`：本地音乐生命周期、公开阶段播报、去重、音量和偏好存储。
@@ -300,7 +302,7 @@ sequenceDiagram
 - 房主不需要准备，服务端也拒绝房主准备事件。
 - 非房主可准备/取消准备。
 - 开始游戏要求当前人数等于目标人数、全员在线、所有非房主已准备。
-- 大厅玩家显式离开会释放座位；房主离开会把房主身份转给顺时针下一位玩家。
+- 大厅玩家显式离开会释放座位；房主离开会把房主身份转给顺时针方向下一位真人玩家，AI 不能成为房主。房间里不再有任何真人时立即关闭房间并清理计时、AI 调度和恢复状态，不等待空闲清理。
 - 房主可踢人或解散房间。
 
 准备状态不做乐观更新。客户端点击准备后只发送 `player:setReady`，等待服务端 `room:state` 后再显示结果。
@@ -607,6 +609,7 @@ flowchart LR
 - 反方 AI 在任务阶段有概率提交失败牌，正方 AI 只能提交成功牌。
 - AI 在自己的发言位置停留 3 秒后自动结束；真人仍使用完整 60 秒倒计时。
 - AI 刺客随机选择非自己的目标。
+- AI 组队用共享的 Fisher-Yates `shuffle()` 打乱在线玩家后取前 N 人；组队、表决和任务牌都使用 `RoomManager` 注入的随机源（默认基于 `crypto.randomBytes`），不调用 `Math.random()`，测试可注入固定随机源锁定结果。
 - 包含 AI 的房间与真人房间一样启用 30 秒投票、30 秒任务计时，并保留 10 秒揭晓、5 秒发车失败、8 秒任务结果、普通任务后的真人发言及 120 秒刺杀讨论。全员提前提交时立即判定，终局不再发言。
 
 `RoomManager.simulateAI()` 使用 `aiSimulating` 防止并发模拟，只允许在 `team/vote/mission/speech` 行动。先判断是否有在线 AI 拥有当前行动权限，仅等待真人时不创建空轮询。普通行动延迟 1.5 秒，当前 AI 发言延迟 3 秒。服务端计时推进通过 `notifyRoomChanged()` 广播后重新调度 AI；刺杀 AI 专由 120 秒截止回调处理，保留完整讨论窗口。
@@ -768,7 +771,7 @@ npm run test:e2e
 
 ### 安全入口和生命周期
 
-`config.ts` 将 LAN 与 public 分离。public 只允许精确 HTTPS 来源、强暗号与实际代理 CIDR。LiveKit 可选，未配置不影响基础游戏；配置后仍验证 WSS/凭证并预检 API。默认预检失败只警告，`VOICE_REQUIRED=true` 才拒绝启动；部分凭证、无效地址和不安全配置始终拒绝。Helmet 设置生产 CSP（脚本仅 self，无内联事件）、禁止 iframe、对象与跨站表单，public 开启 HSTS。页面使用显式事件监听，不要重新引入 `onclick`。允许的 media blob 只服务实时音频，摄像头/定位关闭，麦克风仅同源。
+`config.ts` 将 LAN 与 public 分离。public 只允许精确 HTTPS 来源、强暗号与实际代理 CIDR。LiveKit 可选，未配置不影响基础游戏；配置后仍验证 WSS/凭证并预检 API。默认预检失败只警告，`VOICE_REQUIRED=true` 才拒绝启动；部分凭证、无效地址和不安全配置始终拒绝。Helmet 设置生产 CSP（脚本仅 self，无内联事件；字体只来自同源文件，不允许 `data:`）、禁止 iframe、对象与跨站表单，public 开启 HSTS。页面使用显式事件监听，不要重新引入 `onclick`。允许的 media blob 只服务实时音频，摄像头/定位关闭，麦克风仅同源。开发模式额外允许 `'unsafe-eval'` 和 `worker-src 'self' blob:`，供 Vite 客户端从 blob SharedWorker 检测服务重启；生产模式不包含这两项。
 
 | 边界 | 当前默认值 |
 | --- | --- |
@@ -851,4 +854,4 @@ Compose 默认只运行 app，映射 `127.0.0.1:${GAME_HTTP_PORT:-3100}:3000`；
 
 根 `LICENSE` 只授权项目自有代码、配置、测试和文档。第三方依赖和图片/音乐/旁白不被重新授权。Vite 的 `build.license` 随前端生成 `assets/third-party-licenses.txt`，主脚本附带许可路径提示；Docker 复制根许可和第三方说明，生产依赖保留各自的 LICENSE/NOTICE。媒体是否适合公开由 `docs/media/assets.json` 与证据记录决定，不能把编译成功当作授权完成。
 
-维护入口为根目录 CONTRIBUTING、SECURITY、CODE_OF_CONDUCT、CHANGELOG 和 `.github` 表单/Dependabot。具体首次公开及版本发布流程见 [releasing.md](../development/releasing.md)，代码/媒体范围见 [licensing.md](../media/licensing.md)。当前没有虚构远端 URL、维护人、安全邮箱、历史版本或已启用的 GitHub 设置。
+维护入口为根目录 CONTRIBUTING、SECURITY、CODE_OF_CONDUCT、CHANGELOG 和 `.github` 表单。项目不启用 Dependabot 版本更新（没有 `.github/dependabot.yml`），依赖升级由维护者手动发起，并依靠 CI 的 `npm audit` 发现已知漏洞。具体首次公开及版本发布流程见 [releasing.md](../development/releasing.md)，代码/媒体范围见 [licensing.md](../media/licensing.md)。当前没有虚构远端 URL、维护人、安全邮箱、历史版本或已启用的 GitHub 设置。

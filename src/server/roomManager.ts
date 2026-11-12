@@ -1,6 +1,5 @@
 import crypto, { randomBytes } from "node:crypto";
 import {
-  ALIGNMENT_COUNTS,
   ASSASSINATION_DURATION_MS,
   assertPlayerCount,
   buildRoles,
@@ -88,6 +87,8 @@ export class RoomManager {
 
   roomCodes(): string[] { return [...this.rooms.keys()]; }
 
+  roomCodeOf(playerId: string): string | null { return this.playerToRoom.get(playerId) ?? null; }
+
   restoreRooms(snapshots: RoomSnapshot[], checkpointAt: number): string[] {
     if (this.rooms.size || snapshots.length > (this.limits.maxRooms ?? 200)) throw new Error("Invalid recovery state.");
     const expired: string[] = [];
@@ -161,7 +162,7 @@ export class RoomManager {
     if (room.recovery) throw new GameError("ROOM_RECOVERING", "房间正在恢复连接，请稍候。");
     if (room.phase !== "lobby") throw new Error("游戏已经开始，不能加入。");
     if (room.players.length >= room.targetPlayerCount) throw new Error("房间人数已满。");
-    const safeName = this.normalizePlayerName(name, room.players.length);
+    const safeName = this.normalizePlayerName(name);
     if (room.players.some((player) => player.name.toLocaleLowerCase() === safeName.toLocaleLowerCase())) {
       throw new Error("房间内已有同名玩家。");
     }
@@ -343,22 +344,12 @@ export class RoomManager {
     if (room.players.some((player) => !player.isHost && !player.ready)) throw new Error("所有队员准备后才能开始。");
 
     const roles = buildRoles(room.players.length, this.random);
-    room.leaderIndex = crypto.randomInt(room.players.length);
     room.players.forEach((player, index) => {
       player.role = roles[index];
       player.servantVariant = player.role === "servant" ? crypto.randomInt(2) === 0 ? "male" : "female" : null;
     });
-    room.questIndex = 0;
-    room.rejectCount = 0;
-    room.score = { success: 0, fail: 0 };
-    room.proposal = [];
-    room.votes.clear();
-    room.missionVotes.clear();
-    room.history = [];
-    room.winner = null;
-    room.winnerReason = "";
-    room.winnerDetails = undefined;
-    room.completedAt = null;
+    this.resetGameProgress(room);
+    room.leaderIndex = crypto.randomInt(room.players.length);
     room.phase = "reveal";
     this.startPhaseTimer(room, "reveal", "身份揭晓", this.timing.revealDurationMs ?? ROLE_REVEAL_DURATION_MS);
   }
@@ -404,6 +395,10 @@ export class RoomManager {
       player.servantVariant = null;
       player.ready = player.isAI;
     });
+    this.resetGameProgress(room);
+  }
+
+  private resetGameProgress(room: RoomInternal): void {
     room.leaderIndex = 0;
     room.questIndex = 0;
     room.rejectCount = 0;
@@ -555,7 +550,7 @@ export class RoomManager {
   }
 
   private createPlayer(name: string, isHost: boolean, isAI: boolean, position: number): PlayerInternal {
-    const safeName = this.normalizePlayerName(name, position);
+    const safeName = this.normalizePlayerName(name);
     return {
       id: randomId("p"),
       sessionToken: randomId("s"),
@@ -570,7 +565,7 @@ export class RoomManager {
     };
   }
 
-  private normalizePlayerName(name: string, _position: number): string {
+  private normalizePlayerName(name: string): string {
     const safeName = name.trim().slice(0, 16);
     if (!safeName) throw new Error("请输入你的名字。");
     return safeName;
@@ -582,16 +577,19 @@ export class RoomManager {
     room.players.splice(index, 1);
     this.playerToRoom.delete(playerId);
 
-    if (room.players.length === 0) {
+    // AI seats cannot host, so a lobby without any human player is closed.
+    if (!room.players.some((candidate) => !candidate.isAI)) {
       this.recovery.cancel(room);
       this.clearTimer(room);
       this.clearAISimulation(room);
       this.rooms.delete(room.code);
+      room.players.forEach((candidate) => this.playerToRoom.delete(candidate.id));
       return null;
     }
 
     if (room.hostId === playerId) {
-      const nextHost = room.players[index % room.players.length];
+      const clockwise = room.players.map((_, offset) => room.players[(index + offset) % room.players.length]);
+      const nextHost = clockwise.find((candidate) => !candidate.isAI)!;
       nextHost.isHost = true;
       room.hostId = nextHost.id;
     }
@@ -639,14 +637,7 @@ export class RoomManager {
   }
 
   private advanceLeader(room: RoomInternal): void {
-    const hasConnectedPlayers = room.players.some((player) => player.connected);
-    for (let offset = 1; offset <= room.players.length; offset += 1) {
-      const nextIndex = (room.leaderIndex + offset) % room.players.length;
-      if (!hasConnectedPlayers || room.players[nextIndex]?.connected) {
-        room.leaderIndex = nextIndex;
-        return;
-      }
-    }
+    room.leaderIndex = findNextLeaderIndex(room.players, room.leaderIndex);
   }
 
   private endGame(room: RoomInternal, winner: Winner, reason: string, details: WinnerDetails): void {
@@ -879,6 +870,7 @@ export class RoomManager {
   simulateAI(code: string): void {
     if (this.storageFailed || this.getRoom(code)?.recovery) return;
     scheduleRoomAI(code, {
+      random: this.random,
       getRoom: value => this.getRoom(value),
       proposeTeam: (...args) => this.proposeTeam(...args),
       submitVote: (...args) => this.submitVote(...args),
@@ -896,10 +888,6 @@ export class RoomManager {
     throw new Error("无法创建房间，请重试。");
   }
 
-}
-
-export function sideCountsForPublic(count: number): { good: number; evil: number } {
-  return ALIGNMENT_COUNTS[count];
 }
 
 function randomId(prefix: string): string {

@@ -328,7 +328,7 @@ export function attachSocketHandlers(io: Server, localUrls: string[], options: S
 
   function scheduleLobbyDisconnectRemoval(playerId: string): void {
     clearLobbyDisconnectRemoval(playerId);
-    const originalRoomCode = rooms.roomCodes().find(code => rooms.getRoom(code)?.players.some(player => player.id === playerId));
+    const originalRoomCode = rooms.roomCodeOf(playerId);
     const timer = setTimeout(() => {
       lobbyDisconnectTimers.delete(playerId);
       if (closing || !persistence.healthy || playerSockets.has(playerId)) return;

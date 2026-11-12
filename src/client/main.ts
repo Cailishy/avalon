@@ -541,8 +541,10 @@ function positionPlayersInCircle(): void {
     const layout = tableLayout(seats.length, rect.width, rect.height, first.offsetWidth, first.offsetHeight);
     surface.dataset.layout = layout.mode;
     seats.forEach((seat, index) => {
-      seat.style.left = `${layout.points[index].x}px`;
-      seat.style.top = `${layout.points[index].y}px`;
+      const point = layout.points[index];
+      seat.style.left = `${point.x}px`;
+      seat.style.top = `${point.y}px`;
+      placeVoteToken(seat, point.x, rect.width / 2);
     });
   };
   position();
@@ -552,6 +554,17 @@ function positionPlayersInCircle(): void {
     tableObserver = new ResizeObserver(position);
     tableObserver.observe(surface);
   }
+}
+
+// A seat's vote token rests on the avatar rim, on the side facing the table centre and clear of the
+// name and badges above and below the portrait.
+function placeVoteToken(seat: HTMLElement, seatCenterX: number, centerX: number): void {
+  const avatar = seat.querySelector<HTMLElement>(".player-avatar");
+  if (!avatar) return;
+  const radius = avatar.offsetWidth / 2;
+  const side = centerX < seatCenterX - 1 ? -1 : 1;
+  seat.style.setProperty("--token-x", `${avatar.offsetLeft + radius + side * radius * .94}px`);
+  seat.style.setProperty("--token-y", `${avatar.offsetTop + radius * .66}px`);
 }
 
 function bindLandingActions(): void {

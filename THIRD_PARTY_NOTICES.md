@@ -8,6 +8,7 @@
 
 | 依赖 | 上游许可证 | 上游项目 |
 | --- | --- | --- |
+| @fontsource/noto-serif-sc（Noto Serif SC 字体，随前端打包） | OFL-1.1 | https://github.com/fontsource/font-files |
 | express | MIT | https://github.com/expressjs/express |
 | helmet | MIT | https://github.com/helmetjs/helmet |
 | livekit-client | Apache-2.0 | https://github.com/livekit/client-sdk-js |
