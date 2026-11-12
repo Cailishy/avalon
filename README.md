@@ -11,7 +11,7 @@ Avalon（阿瓦隆）是一个在浏览器里玩的 5–10 人社交推理游戏
 ![5–10 人](https://img.shields.io/badge/Players-5--10-B79C5F?style=flat-square)
 [![代码许可 MIT](https://img.shields.io/badge/Code_License-MIT-527C87?style=flat-square)](LICENSE)
 
-[🚀 快速开始](#快速开始) · [🖼️ 游戏展示](#游戏展示) · [🎭 角色典藏馆](#角色典藏馆) · [📖 游戏规则](docs/user-guide/rules.md) · [🌐 部署指南](docs/deployment/README.md)
+[🚀 快速开始](#快速开始) · [🖼️ 游戏展示](#游戏展示) · [🎬 宣传片](docs/video/avalon-promo.mp4) · [🎭 角色典藏馆](#角色典藏馆) · [📖 游戏规则](docs/user-guide/rules.md) · [🌐 部署指南](docs/deployment/README.md)
 
 ![圆桌对局实机画面：左侧身份配置，中间任务进度、圆桌与队长选人，右侧公开对局记录](docs/images/game.jpg)
 
@@ -67,6 +67,10 @@ npm run dev
 ## 游戏展示
 
 从入席到任务结算，页面会跟着对局推进。投票、倒计时和结果由服务器校验，不靠反复刷新整页来同步。
+
+🎬 **64 秒宣传演示片**：从开房、组队、表决、任务到最后的刺杀，画面全部来自真实对局录屏。点击封面观看，制作说明见[视频说明](docs/video/README.md)。
+
+[![阿瓦隆宣传演示片封面：圆桌上的阿瓦隆标题与播放按钮](docs/images/promo-poster.jpg)](docs/video/avalon-promo.mp4)
 
 | 🏰 创建与加入 | 👥 等大家准备好 |
 | --- | --- |

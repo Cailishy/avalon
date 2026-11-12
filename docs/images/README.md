@@ -10,6 +10,7 @@
 | [mission-result.jpg](mission-result.jpg) | 一次两人任务成功，表决为三票赞成、两票反对 |
 | [quest-details.jpg](quest-details.jpg) | 同一次任务的队长、队员、公开表决及匿名任务牌汇总 |
 | [mobile.jpg](mobile.jpg) | 390 × 844 手机视口下的圆桌与发言阶段 |
+| [promo-poster.jpg](promo-poster.jpg) | 宣传演示片封面，取自片头标题画面并加播放按钮，来源见[视频说明](../video/README.md) |
 
 ### 单张角色卡
 
