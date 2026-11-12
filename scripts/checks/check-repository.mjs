@@ -10,7 +10,7 @@ export const requiredFiles = [
   "LICENSE", "README.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "CHANGELOG.md", "THIRD_PARTY_NOTICES.md",
   ".editorconfig", "eslint.config.mjs", ".gitignore", ".env.example", "package.json", "package-lock.json", "Dockerfile",
   ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml",
-  ".github/VULNERABILITY_REPORT.yml", ".github/pull_request_template.md", ".github/dependabot.yml", ".github/workflows/ci.yml", ".github/workflows/secrets.yml",
+  ".github/VULNERABILITY_REPORT.yml", ".github/pull_request_template.md", ".github/workflows/ci.yml", ".github/workflows/secrets.yml",
   "docs/media/licensing.md", "docs/development/releasing.md", "docs/development/security.md", "docs/media/assets.json", "docs/deployment/README.md", "docs/development/architecture.md",
   "public/assets/LICENSE.md", "public/assets/MIT-LICENSE.txt", "public/assets/narration/NOTICE.md", "public/assets/ATTRIBUTION.md", "docs/media/provenance.md", "deploy/Caddyfile.existing", "deploy/caddy-policy.caddy",
   "scripts/checks/check-repository.mjs", "scripts/checks/check-secrets.mjs", "scripts/deploy/deployment.mjs",
@@ -100,7 +100,6 @@ export function inspectRepository(root, { release = false, trackedFiles, dirty }
       }
     }
     if (file.endsWith("ISSUE_TEMPLATE/config.yml") && value?.blank_issues_enabled !== false) errors.push("Public blank issues must not bypass the privacy guidance.");
-    if (file.endsWith("dependabot.yml") && (value?.version !== 2 || !["npm", "github-actions", "docker"].every(kind => value.updates?.some(item => item["package-ecosystem"] === kind)))) errors.push("Dependabot must cover npm, actions and the app image.");
   }
 
   const record = reviewSchema.safeParse(json("docs/media/assets.json"));

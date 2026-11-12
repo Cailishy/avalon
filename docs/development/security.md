@@ -9,6 +9,10 @@
 - 请求包含意图编号和阶段编号，重试不应重复执行；回执有容量与时效边界，不承诺跨数据库丢失后的无限期去重。
 - 入场暗号和玩家会话分开。共享暗号不是账号、实名、封禁或防合谋系统，泄漏后需要轮换。
 
+## 浏览器策略
+
+服务端用 Helmet 下发 CSP：脚本只允许同源，不使用内联事件；样式允许内联；图片允许 `data:`；媒体 `blob:` 只用于实时音频；禁止对象、iframe 嵌入和跨站表单提交。字体以同源 woff2 文件提供，CSP 不放开 `font-src data:`，构建不得把字体内联为 data URI。开发模式额外允许 `'unsafe-eval'` 和 `blob:` worker，以支持 Vite 热更新与重启检测，这两项不能带入生产配置。
+
 ## 公网部署
 
 生产模式接入可信 HTTPS / WSS，Caddy 只代理固定游戏上游。Node 原始端口不直接暴露公网；可信代理必须限定到实际代理地址，不能信任任意转发头。
@@ -35,6 +39,6 @@ WebRTC 提供传输加密，但本项目没有实现 E2EE；媒体服务器和�
 
 ## 依赖维护
 
-CI 对完整依赖树执行 `npm audit`，不能只检查生产依赖而忽略开发和构建工具。当前通过 npm `overrides` 将开发工具链的 `minimatch` 固定为 `11.0.1`，对应修复 [GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249)。这是跨原依赖主版本的显式兼容覆盖，已配合锁文件、lint、类型、构建和回归验证；上游依赖接入修复版本后应重新评估并移除覆盖，不使用 `audit fix --force` 自动降级整套工具。
+项目没有启用 Dependabot 版本更新，依赖升级由维护者手动发起，并走完整的 lint、类型、测试和构建检查。CI 对完整依赖树执行 `npm audit`，不能只检查生产依赖而忽略开发和构建工具。当前通过 npm `overrides` 将开发工具链的 `minimatch` 固定为 `11.0.1`，对应修复 [GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249)。这是跨原依赖主版本的显式兼容覆盖，已配合锁文件、lint、类型、构建和回归验证；上游依赖接入修复版本后应重新评估并移除覆盖，不使用 `audit fix --force` 自动降级整套工具。
 
 安全检查只覆盖当次测试与已知公告，不能证明不存在未知漏洞。上线前仍需在自己的 Linux、证书、防火墙、备份及真实终端环境验收。
